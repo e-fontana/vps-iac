@@ -5,8 +5,10 @@ kind: Application
 metadata:
   name: tailscale-operator
   namespace: argocd
+  labels:
+    group: networking
 spec:
-  project: default
+  project: networking
   source:
     repoURL: https://pkgs.tailscale.com/helmcharts
     chart: tailscale-operator

@@ -7,10 +7,12 @@ kind: Application
 metadata:
   name: grafana
   namespace: argocd
+  labels:
+    group: observability
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "1"
 spec:
-  project: default
+  project: observability
   source:
     repoURL: https://grafana-community.github.io/helm-charts # o grafana/grafana está deprecated
     chart: grafana

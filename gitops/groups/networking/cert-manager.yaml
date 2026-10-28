@@ -6,10 +6,12 @@ kind: Application
 metadata:
   name: cert-manager
   namespace: argocd
+  labels:
+    group: networking
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  project: default
+  project: networking
   source:
     repoURL: https://charts.jetstack.io
     chart: cert-manager

@@ -5,10 +5,12 @@ kind: Application
 metadata:
   name: argocd-ingress
   namespace: argocd
+  labels:
+    group: networking
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  project: default
+  project: networking
   source:
     repoURL: https://github.com/e-fontana/vpn-iac.git
     targetRevision: main

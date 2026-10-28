@@ -1,9 +1,28 @@
 # GitOps
 
-Tudo em `gitops/apps/` é sincronizado pelo ArgoCD: a Application `root` (criada pelo
-bootstrap da VM) observa essa pasta, definida por `gitops_path` no tfvars.
-Cada arquivo ali é uma Application filha. Para adicionar um serviço, crie um YAML
-nessa pasta e faça push.
+```
+gitops/
+├── apps/                     # o root lê só aqui: projetos + uma Application por grupo
+│   ├── projects.yaml         # AppProjects (networking, observability)
+│   ├── networking.yaml       # → groups/networking
+│   └── observability.yaml    # → groups/observability
+├── groups/
+│   ├── networking/           # cert-manager, cert-manager-config, traefik, argocd-ingress, tailscale-operator
+│   └── observability/        # prometheus, grafana
+└── manifests/                # YAML simples usados pelas Applications (ClusterIssuer, Ingress)
+```
+
+A Application `root` (criada pelo bootstrap da VM) observa `gitops/apps`, definido por `gitops_path`
+no tfvars. Cada grupo é uma Application que observa a própria pasta em `groups/`, então na interface
+do ArgoCD os serviços aparecem agrupados: abra `networking` ou `observability` para ver os filhos,
+ou filtre a lista por **Project** ou pelo label `group`.
+
+**Adicionar um serviço:** crie um YAML em `groups/<grupo>/` com `project: <grupo>` e o label
+`group: <grupo>`, e faça push. **Novo grupo:** um `AppProject` em `apps/projects.yaml`, um arquivo
+`apps/<grupo>.yaml` copiado de um existente e uma pasta `groups/<grupo>/`.
+
+Ordem de sync (ondas): projetos (-1), grupos `networking` (0) e `observability` (1); dentro de cada
+grupo, as ondas de cada Application.
 
 ## Tailscale operator: pré-requisitos
 
@@ -61,7 +80,7 @@ metadata:
 ## Ingress, certificados e observabilidade
 
 `cert-manager` (certificados Let's Encrypt via Cloudflare DNS-01) + `traefik` (ingress na 443)
-+ `prometheus` e `grafana`. Ficam em `apps/`, com ordem de sync por ondas (0 a 3).
++ `prometheus` e `grafana`. Ficam em `groups/`, com ordem de sync por ondas.
 Resultado: `https://argocd.eduardofontana.dev` e `https://grafana.eduardofontana.dev`, sem porta,
 só pela VPN.
 

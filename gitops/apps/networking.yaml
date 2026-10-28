@@ -1,0 +1,26 @@
+# Grupo "networking": ingress, certificados e acesso pela VPN
+# Esta Application só aponta para gitops/groups/networking; os serviços ficam lá, um arquivo cada.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: networking
+  namespace: argocd
+  labels:
+    group: networking
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/e-fontana/vpn-iac.git
+    targetRevision: main
+    path: gitops/groups/networking
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -6,10 +6,12 @@ kind: Application
 metadata:
   name: prometheus
   namespace: argocd
+  labels:
+    group: observability
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
-  project: default
+  project: observability
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: prometheus

@@ -5,10 +5,12 @@ kind: Application
 metadata:
   name: cert-manager-config
   namespace: argocd
+  labels:
+    group: networking
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
-  project: default
+  project: networking
   source:
     repoURL: https://github.com/e-fontana/vpn-iac.git
     targetRevision: main

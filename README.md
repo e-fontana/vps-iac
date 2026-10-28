@@ -11,7 +11,9 @@ cloud/
 │   │   └── compute/    # instância Ubuntu + bootstrap (Tailscale, k3s, ArgoCD, ArgoCD)
 │   └── envs/prod/      # onde se roda o terraform (tfvars, providers, chamada dos módulos)
 └── gitops/
-    └── apps/           # Applications do ArgoCD (sincronizadas automaticamente)
+    ├── apps/           # projetos e um Application por grupo (o que o root lê)
+    ├── groups/         # as Applications de cada grupo (networking, observability)
+    └── manifests/      # YAML simples usados pelas Applications
 ```
 
 ## Ordem de execução
@@ -57,10 +59,10 @@ Só depois de entrar pela VPN: `enable_public_ssh = false` no tfvars e `terrafor
 
 ### 6. Tailscale operator (expor serviços na tailnet)
 Siga `gitops/README.md`: ACL, OAuth client e o Secret `operator-oauth` no cluster.
-O ArgoCD instala o operator a partir de `gitops/apps/tailscale-operator.yaml`.
+O ArgoCD instala o operator a partir de `gitops/groups/networking/tailscale-operator.yaml`.
 
 ### 7. Ingress, certificados e Grafana
-`gitops/apps/` também sobe cert-manager, Traefik, Prometheus e Grafana
+`gitops/groups/` também sobe cert-manager, Traefik, Prometheus e Grafana
 (`argocd.eduardofontana.dev` e `grafana.eduardofontana.dev`, sem porta). **A ordem importa**:
 siga `gitops/README.md` (secrets e liberação da porta 443) antes do `git push`.
 
