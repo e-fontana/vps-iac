@@ -27,6 +27,11 @@ spec:
         persistence:
           enabled: true
           size: 2Gi
+        # O init-chown-data roda com só a capability CHOWN e quebra no 2º start: o Grafana cria
+        # csv/ png/ pdf/ no volume e root, sem DAC_READ_SEARCH, não consegue entrar nelas
+        # (chown: ...: Permission denied). O volume do local-path já é gravável pelo uid 472.
+        initChownData:
+          enabled: false
         resources:
           requests:
             cpu: 50m
