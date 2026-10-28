@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: api
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - api.yaml
+  - ingress.yaml
+images:
+  # "api-image" é o nome lógico usado no Deployment. Por enquanto aponta para uma imagem de
+  # teste (traefik/whoami) só para validar DNS, TLS e ingress antes de existir código.
+  # O CI (templates/api/github-actions.yml) reescreve este bloco a cada deploy com:
+  #   kustomize edit set image api-image=ghcr.io/e-fontana/api:<sha>
+  - name: api-image
+    newName: traefik/whoami
+    newTag: v1.12.0

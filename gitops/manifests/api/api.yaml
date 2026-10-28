@@ -1,0 +1,71 @@
+# A API. A imagem é definida no kustomization.yaml (nome lógico "api-image").
+# A aplicação deve ouvir na porta 8080 (variável PORT) e ler DATABASE_URL do ambiente.
+# Variáveis vêm do Secret "api-env" (DATABASE_URL), criado à mão: veja gitops/README.md.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: api-image
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: WHOAMI_PORT_NUMBER # só a imagem de teste usa; a API real ignora
+              value: "8080"
+          envFrom:
+            - secretRef:
+                name: api-env
+          securityContext:
+            allowPrivilegeEscalation: false
+          # tcpSocket funciona com qualquer API; troque por httpGet /healthz quando existir
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    app: api
+  # Para o Prometheus coletar /metrics da API, descomente (a imagem de teste não tem /metrics):
+  # annotations:
+  #   prometheus.io/scrape: "true"
+  #   prometheus.io/port: "8080"
+  #   prometheus.io/path: /metrics
+spec:
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

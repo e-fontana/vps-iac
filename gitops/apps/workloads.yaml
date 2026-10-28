@@ -1,0 +1,26 @@
+# Grupo "workloads": as aplicações próprias (APIs e afins).
+# Esta Application só aponta para gitops/groups/workloads; cada aplicação fica lá, um arquivo cada.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workloads
+  namespace: argocd
+  labels:
+    group: workloads
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: groups
+  source:
+    repoURL: https://github.com/e-fontana/vpn-iac.git
+    targetRevision: main
+    path: gitops/groups/workloads
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

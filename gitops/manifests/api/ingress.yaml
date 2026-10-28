@@ -1,0 +1,25 @@
+# https://api.eduardofontana.dev, só pela VPN (a 443 não está exposta ao público).
+# Certificado emitido pelo cert-manager (Secret api-tls).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: api.eduardofontana.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - api.eduardofontana.dev
+      secretName: api-tls

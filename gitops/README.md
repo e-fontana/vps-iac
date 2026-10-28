@@ -3,12 +3,14 @@
 ```
 gitops/
 ├── apps/                     # o root lê só aqui: projetos + uma Application por grupo
-│   ├── projects.yaml         # AppProjects (groups, networking, observability)
+│   ├── projects.yaml         # AppProjects (groups, networking, observability, workloads)
 │   ├── networking.yaml       # → groups/networking
-│   └── observability.yaml    # → groups/observability
+│   ├── observability.yaml    # → groups/observability
+│   └── workloads.yaml        # → groups/workloads
 ├── groups/
 │   ├── networking/           # cert-manager, cert-manager-config, traefik, argocd-ingress, tailscale-operator
-│   └── observability/        # prometheus, grafana
+│   ├── observability/        # prometheus, grafana
+│   └── workloads/            # api (aplicações próprias)
 └── manifests/                # YAML simples usados pelas Applications (ClusterIssuer, Ingress)
 ```
 
@@ -145,3 +147,54 @@ sudo k3s kubectl get pods -A
 - Prometheus guarda 15 dias em PVC de 10 Gi (`local-path` do k3s). Não há backup desses dados.
 - O `ingressEndpoint.ip` do Traefik é o IP da VPS na tailnet (`traefik.yaml`). Se ele mudar,
   atualize ali; é só cosmético (status dos Ingress).
+
+## API própria (Go ou NestJS + Postgres)
+
+`groups/workloads/api.yaml` descreve `manifests/api` (hoje **sem sync automático**: a Application fica `OutOfSync`
+até você mandar; veja o comentário no próprio arquivo). Ele cria: namespace `api`, Postgres (StatefulSet, 5 Gi em
+`local-path`), a API (Deployment + Service) e um Ingress em `https://api.eduardofontana.dev`, só pela VPN.
+Até existir imagem própria, a API roda a imagem de teste `traefik/whoami`: serve para validar DNS,
+TLS e ingress antes de escrever código.
+
+### 1. Secrets (na VPS; nada vai ao Git)
+```bash
+ssh -t ubuntu@100.95.76.83
+sudo k3s kubectl create namespace api
+
+PW=$(openssl rand -hex 24)    # só letras e números: entra na URL do banco sem precisar de escape
+sudo k3s kubectl -n api create secret generic postgres-credentials \
+  --from-literal=POSTGRES_USER=api --from-literal=POSTGRES_PASSWORD="$PW" --from-literal=POSTGRES_DB=api
+sudo k3s kubectl -n api create secret generic api-env \
+  --from-literal=DATABASE_URL="postgres://api:$PW@postgres.api.svc.cluster.local:5432/api?sslmode=disable"
+unset PW
+```
+A senha não aparece na tela. Para ler depois:
+`sudo k3s kubectl -n api get secret postgres-credentials -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d`.
+`sslmode=disable` porque o tráfego fica dentro do cluster. **Crie os Secrets antes do push**, ou os pods
+ficam em `CreateContainerConfigError` até eles existirem.
+
+### 2. DNS
+Registro `A` `api` → IP da VPS na tailnet, proxy desligado.
+
+### 3. Conferir a infra com a imagem de teste
+```bash
+sudo k3s kubectl -n argocd get applications
+sudo k3s kubectl -n api get pods,pvc,certificate
+curl -s https://api.eduardofontana.dev/    # pela VPN: a imagem de teste devolve os headers da requisição
+```
+
+### 4. Colocar o código
+No repositório da API (separado deste):
+1. Copie `templates/api/Dockerfile.go` ou `Dockerfile.nest` como `Dockerfile`. A API deve ouvir em
+   `0.0.0.0:8080` (variável `PORT`) e ler `DATABASE_URL` do ambiente.
+2. Copie `templates/api/github-actions.yml` para `.github/workflows/deploy.yml` e crie o secret
+   `GITOPS_TOKEN` (permissão de escrita só neste repositório de infra).
+3. Imagem privada no GHCR: o cluster precisa de um `imagePullSecret` (ou deixe o pacote público).
+4. A cada push na `main`, o CI publica a imagem `linux/arm64`, troca a tag no `kustomization.yaml` e o
+   ArgoCD aplica. Migrações: rode no start da API ou em um Job.
+
+### Banco de dados
+- Acesso: `sudo k3s kubectl -n api exec -it postgres-0 -- psql -U api -d api`.
+- **Sem backup automático**: os dados ficam no disco da VPS. Para algo mais que testes, faça um
+  `pg_dump` periódico para fora da máquina.
+- Métricas da API: descomente as anotações `prometheus.io/*` no Service em `manifests/api/api.yaml`.

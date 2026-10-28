@@ -56,3 +56,22 @@ spec:
   clusterResourceWhitelist:
     - group: "*"
       kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: workloads
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: Aplicações próprias (APIs e afins)
+  sourceRepos:
+    - "*"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  # Só permite criar Namespaces entre os recursos globais (o manifest da API cria a namespace "api")
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
