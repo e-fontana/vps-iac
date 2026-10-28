@@ -68,8 +68,12 @@ spec:
             kube-state-metrics:
               gnetId: 13332
               revision: 12
+              # Este dashboard declara dois inputs; sem VAR_DATASOURCE a variável constante
+              # "datasource" fica com o texto literal ${VAR_DATASOURCE} e toda consulta falha.
               datasource:
                 - name: DS_PROMETHEUS
+                  value: Prometheus
+                - name: VAR_DATASOURCE
                   value: Prometheus
         ingress:
           enabled: true
