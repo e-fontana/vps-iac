@@ -7,12 +7,15 @@ exec > >(tee -a /var/log/bootstrap-node.log) 2>&1
 kubectl() { k3s kubectl "$@"; }
 
 # Firewall do host: a imagem OCI rejeita tudo exceto SSH.
-# Libera a interface da VPN e o tráfego interno do k3s (pods/services).
+# Libera a interface da VPN e o tráfego interno do k3s (pods/services), em INPUT e FORWARD.
 allow() { iptables -C INPUT "$@" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 "$@" -j ACCEPT; }
+allow_fwd() { iptables -C FORWARD "$@" -j ACCEPT 2>/dev/null || iptables -I FORWARD 1 "$@" -j ACCEPT; }
 allow -i tailscale0
 allow -i cni0
 allow -s 10.42.0.0/16
 allow -s 10.43.0.0/16
+allow_fwd -s 10.42.0.0/16
+allow_fwd -d 10.42.0.0/16
 netfilter-persistent save
 
 # VPN
