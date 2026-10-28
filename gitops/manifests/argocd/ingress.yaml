@@ -1,0 +1,26 @@
+# argocd-server atrás do Traefik. O server precisa estar em modo HTTP (server.insecure=true),
+# então o backend é a porta 80 do Service. O certificado vem do cert-manager (Secret argocd-tls).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd
+  namespace: argocd
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: argocd.eduardofontana.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - argocd.eduardofontana.dev
+      secretName: argocd-tls

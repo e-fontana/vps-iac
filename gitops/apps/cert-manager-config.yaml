@@ -1,0 +1,30 @@
+# ClusterIssuer do Let's Encrypt (manifest em gitops/manifests/cert-manager).
+# Onda 1: depende dos CRDs do cert-manager.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/e-fontana/vpn-iac.git
+    targetRevision: main
+    path: gitops/manifests/cert-manager
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true # o CRD ClusterIssuer pode ainda não existir no dry-run
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

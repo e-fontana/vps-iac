@@ -1,0 +1,48 @@
+# Prometheus leve para a própria VPS: server + node-exporter + kube-state-metrics.
+# Sem Alertmanager nem Pushgateway. Dados em PVC local (local-path do k3s), retenção de 15 dias.
+# O Grafana lê de http://prometheus-server.monitoring.svc.cluster.local
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus
+    targetRevision: 29.39.0
+    helm:
+      releaseName: prometheus
+      valuesObject:
+        alertmanager:
+          enabled: false
+        prometheus-pushgateway:
+          enabled: false
+        kube-state-metrics:
+          enabled: true
+        prometheus-node-exporter:
+          enabled: true
+        server:
+          retention: 15d
+          persistentVolume:
+            enabled: true
+            size: 10Gi
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

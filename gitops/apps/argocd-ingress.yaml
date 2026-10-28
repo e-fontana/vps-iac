@@ -1,0 +1,22 @@
+# Ingress do próprio ArgoCD em https://argocd.eduardofontana.dev (manifest em gitops/manifests/argocd).
+# Requer o argocd-server em modo HTTP (server.insecure=true): o TLS passa a ser do Traefik.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-ingress
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/e-fontana/vpn-iac.git
+    targetRevision: main
+    path: gitops/manifests/argocd
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

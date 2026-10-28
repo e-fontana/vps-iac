@@ -1,0 +1,35 @@
+# cert-manager: emite os certificados TLS (Let's Encrypt, DNS-01 na Cloudflare).
+# Onda 0: precisa existir antes do ClusterIssuer e dos Ingress.
+# Pré-requisito: Secret "cloudflare-api-token" na namespace cert-manager (veja gitops/README.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.21.3
+    helm:
+      releaseName: cert-manager
+      valuesObject:
+        crds:
+          enabled: true
+        # Valida o desafio DNS direto nos resolvers públicos, sem passar pelo DNS do cluster
+        extraArgs:
+          - --dns01-recursive-nameservers-only
+          - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

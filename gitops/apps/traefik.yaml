@@ -1,0 +1,59 @@
+# Traefik: ingress na porta 443 do nó (NodePort 443; a faixa de NodePort do k3s inclui a 443).
+# Roteia por nome (argocd.*, grafana.*). Só é alcançável pela VPN: a security list da OCI
+# e o firewall do host não expõem a 443 ao público.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: 42.1.3
+    helm:
+      releaseName: traefik
+      valuesObject:
+        deployment:
+          replicas: 1
+        service:
+          spec:
+            type: NodePort
+        ports:
+          web:
+            expose:
+              default: false # sem HTTP: tudo é HTTPS e só pela VPN
+          websecure:
+            nodePort: 443
+        providers:
+          kubernetesCRD:
+            enabled: false
+          kubernetesIngress:
+            # Sem LoadBalancer, o status dos Ingress ficaria vazio e o ArgoCD os marcaria
+            # como "Progressing". Publica o IP da VPS na tailnet no lugar.
+            publishedService:
+              enabled: false
+            ingressEndpoint:
+              ip: 100.95.76.83
+        ingressClass:
+          enabled: true
+          isDefaultClass: true
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

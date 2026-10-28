@@ -57,3 +57,71 @@ metadata:
     tailscale.com/expose: "true"
     tailscale.com/hostname: "meu-servico"
 ```
+
+## Ingress, certificados e observabilidade
+
+`cert-manager` (certificados Let's Encrypt via Cloudflare DNS-01) + `traefik` (ingress na 443)
++ `prometheus` e `grafana`. Ficam em `apps/`, com ordem de sync por ondas (0 a 3).
+Resultado: `https://argocd.eduardofontana.dev` e `https://grafana.eduardofontana.dev`, sem porta,
+só pela VPN.
+
+### Ordem da migração (importante)
+
+**Não faça `git push` antes dos passos A e B.** O ArgoCD sincroniza sozinho: o Traefik tentaria
+ocupar a porta 443, que hoje é do `argocd-server`, e o ClusterIssuer e o Grafana subiriam sem
+os Secrets.
+
+**A. Secrets (na VPS; nada vai ao Git)**
+```bash
+ssh -t ubuntu@100.95.76.83
+sudo k3s kubectl create namespace cert-manager
+sudo k3s kubectl create namespace monitoring
+
+read -rsp 'Token da Cloudflare: ' CF; echo
+sudo k3s kubectl -n cert-manager create secret generic cloudflare-api-token --from-literal=api-token="$CF"
+unset CF
+
+read -rsp 'Senha do admin do Grafana: ' GP; echo
+sudo k3s kubectl -n monitoring create secret generic grafana-admin \
+  --from-literal=admin-user=admin --from-literal=admin-password="$GP"
+unset GP
+```
+O token pode ser o mesmo do certbot (*Edit zone DNS*, restrito à zona). Guarde a senha do Grafana
+num gerenciador: o Secret `grafana-admin` é a única fonte dela.
+
+**B. ArgoCD sai da 443 e passa a responder em HTTP (o TLS passa a ser do Traefik)**
+```bash
+sudo k3s kubectl -n argocd patch cm argocd-cmd-params-cm --type merge -p '{"data":{"server.insecure":"true"}}'
+sudo k3s kubectl -n argocd patch svc argocd-server --type json -p '[
+  {"op":"replace","path":"/spec/type","value":"ClusterIP"},
+  {"op":"remove","path":"/spec/ports/0/nodePort"},
+  {"op":"remove","path":"/spec/ports/1/nodePort"}]'
+sudo k3s kubectl -n argocd rollout restart deploy/argocd-server
+sudo systemctl disable --now argocd-cert-renew.timer
+```
+A partir daqui a UI do ArgoCD fica fora do ar até o Traefik e o certificado subirem (alguns
+minutos). Se precisar dela antes: `ssh -L 8080:localhost:8080 ubuntu@100.95.76.83` e, na VPS,
+`sudo k3s kubectl -n argocd port-forward svc/argocd-server 8080:80`.
+
+**C. DNS:** registro `A` `grafana` → `100.95.76.83`, proxy desligado (o `argocd` já existe).
+
+**D. `git push`.** A Application `root` sincroniza as novas Applications em ondas. Acompanhe:
+```bash
+sudo k3s kubectl -n argocd get applications
+sudo k3s kubectl get certificate -A      # READY=True em ~1-2 min por certificado (DNS-01)
+sudo k3s kubectl get pods -A
+```
+
+### Depois
+
+- Grafana: usuário `admin` e a senha do passo A. O datasource Prometheus e os dashboards
+  *Node Exporter Full* e *kube-state-metrics v2* já vêm provisionados.
+- CLI do ArgoCD atrás do Traefik: `argocd login argocd.eduardofontana.dev --grpc-web`.
+- Opcional: `sudo k3s kubectl -n argocd delete secret argocd-server-tls` (sobra do certbot).
+
+### Notas
+
+- O download dos dashboards roda no start do pod do Grafana e precisa de acesso ao grafana.com.
+- Prometheus guarda 15 dias em PVC de 10 Gi (`local-path` do k3s). Não há backup desses dados.
+- O `ingressEndpoint.ip` do Traefik é o IP da VPS na tailnet (`traefik.yaml`). Se ele mudar,
+  atualize ali; é só cosmético (status dos Ingress).

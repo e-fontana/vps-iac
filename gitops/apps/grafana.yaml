@@ -1,0 +1,94 @@
+# Grafana em https://grafana.eduardofontana.dev, com o Prometheus como datasource padrão
+# e dois dashboards do grafana.com: Node Exporter Full (1860) e kube-state-metrics v2 (13332).
+# Pré-requisito: Secret "grafana-admin" na namespace monitoring (veja gitops/README.md).
+# O download dos dashboards roda no start do pod e precisa de acesso a grafana.com.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: grafana
+    targetRevision: 10.5.15
+    helm:
+      releaseName: grafana
+      valuesObject:
+        # Senha em Secret criado à mão. Sem isso o chart gera uma senha aleatória a cada render,
+        # o que o ArgoCD enxergaria como diferença a cada sync.
+        admin:
+          existingSecret: grafana-admin
+          userKey: admin-user
+          passwordKey: admin-password
+        persistence:
+          enabled: true
+          size: 2Gi
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+        grafana.ini:
+          server:
+            root_url: https://grafana.eduardofontana.dev
+        datasources:
+          datasources.yaml:
+            apiVersion: 1
+            datasources:
+              - name: Prometheus
+                type: prometheus
+                access: proxy
+                url: http://prometheus-server.monitoring.svc.cluster.local
+                isDefault: true
+        dashboardProviders:
+          dashboardproviders.yaml:
+            apiVersion: 1
+            providers:
+              - name: default
+                orgId: 1
+                folder: ""
+                type: file
+                disableDeletion: false
+                editable: true
+                options:
+                  path: /var/lib/grafana/dashboards/default
+        dashboards:
+          default:
+            node-exporter-full:
+              gnetId: 1860
+              revision: 45
+              datasource:
+                - name: DS_PROMETHEUS
+                  value: Prometheus
+            kube-state-metrics:
+              gnetId: 13332
+              revision: 12
+              datasource:
+                - name: DS_PROMETHEUS
+                  value: Prometheus
+        ingress:
+          enabled: true
+          ingressClassName: traefik
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt
+          hosts:
+            - grafana.eduardofontana.dev
+          tls:
+            - secretName: grafana-tls
+              hosts:
+                - grafana.eduardofontana.dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,18 @@
+# Let's Encrypt (produção) com validação DNS-01 na Cloudflare.
+# O token vem do Secret "cloudflare-api-token" (chave api-token) na namespace cert-manager,
+# criado à mão: nunca vai para o Git.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
