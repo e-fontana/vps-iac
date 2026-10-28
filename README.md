@@ -4,6 +4,7 @@ VPS no Always Free da Oracle (ARM) rodando k3s mínimo + ArgoCD, acessível só 
 
 ```
 cloud/
+├── Makefile               # make plan / apply (roda o terraform em terraform/envs/prod)
 ├── terraform/
 │   ├── modules/
 │   │   ├── network/    # VCN, subnet, security list (sem portas públicas além do SSH temporário)
@@ -24,18 +25,17 @@ cloud/
 
 ### 2. Configurar
 ```bash
-cd terraform/envs/prod
-cp terraform.tfvars.example terraform.tfvars   # se ainda não existir; preencha
+cp terraform/envs/prod/terraform.tfvars.example terraform/envs/prod/terraform.tfvars   # se ainda não existir; preencha
 # defina gitops_repo_url (ou deixe vazio para criar a Application raiz depois)
-export TF_VAR_tailscale_auth_key=tskey-auth-...
+export TF_VAR_tailscale_auth_key=tskey-auth-...      # fish: set -x TF_VAR_tailscale_auth_key tskey-auth-...
 ```
 
-### 3. Subir a infra
+### 3. Subir a infra (da raiz do projeto)
 ```bash
-terraform init
-terraform plan      # revise antes de aplicar
-terraform apply
+make plan      # revise antes de aplicar
+make apply     # pede confirmação (yes)
 ```
+Outros comandos: `make init`, `make validate`, `make fmt` (veja `make help`).
 O bootstrap leva alguns minutos. Log na VM: `/var/log/bootstrap-node.log`.
 
 ### 4. Acessar (pela VPN)
