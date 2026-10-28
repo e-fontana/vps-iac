@@ -18,7 +18,7 @@ Tudo aqui vale **dentro do cluster** e só é alcançável de fora **pela VPN** 
 |---|---|---|---|
 | **Postgres** | `postgres.postgres.svc.cluster.local:5432` | [new-database.sh](../templates/postgres/new-database.sh) | Secret com `DATABASE_URL` |
 | **Redis** | `redis.redis.svc.cluster.local:6379` | [new-user.sh](../templates/redis/new-user.sh) | Secret com `REDIS_URL`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `REDIS_KEY_PREFIX` |
-| **S3** (SeaweedFS) | `http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333` | manual, veja [S3](#s3-seaweedfs) | chave de acesso e segredo |
+| **S3** (SeaweedFS) | `http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333` | [new-bucket.sh](../templates/seaweedfs/new-bucket.sh) | Secret com `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION` |
 | **Telemetria** (OTLP) | `http://alloy.monitoring.svc.cluster.local:4318` (HTTP) ou `:4317` (gRPC) | nenhum pedido | variáveis `OTEL_*` |
 | **HTTPS para a sua API** | `https://<app>.eduardofontana.dev` | Ingress + registro DNS, veja [Expor a API](#expor-a-api) | certificado automático |
 
@@ -39,9 +39,12 @@ Troque `meuapp` pelo nome da sua aplicação (minúsculas, números e `_`, come�
    ```bash
    ssh ubuntu@100.95.76.83 'bash -s -- meuapp meuapp meuapp-redis' < templates/redis/new-user.sh
    ```
-3. **S3** (se usar): siga a seção [S3](#s3-seaweedfs).
+3. **S3** (se usar; cria o bucket, uma chave só dele e o Secret `meuapp-s3`):
+   ```bash
+   ssh ubuntu@100.95.76.83 'bash -s -- meuapp meuapp meuapp-s3' < templates/seaweedfs/new-bucket.sh
+   ```
 4. **Manifests:** copie [gitops/manifests/api](../gitops/manifests/api) para `gitops/manifests/meuapp`, ajuste os nomes e, no
-   Deployment, aponte os Secrets: `envFrom: [{secretRef: {name: meuapp-db}}, {secretRef: {name: meuapp-redis}}]`.
+   Deployment, aponte os Secrets: `envFrom: [{secretRef: {name: meuapp-db}}, {secretRef: {name: meuapp-redis}}, {secretRef: {name: meuapp-s3}}]`.
 5. **Application do ArgoCD:** copie [gitops/groups/workloads/api.yaml](../gitops/groups/workloads/api.yaml) para
    `gitops/groups/workloads/meuapp.yaml` e ajuste `name`, `path` e `destination.namespace`. Ele começa **sem sync
    automático** (veja o comentário no arquivo); clique em Sync quando os Secrets existirem.
@@ -105,41 +108,41 @@ rdb.Set(ctx, os.Getenv("REDIS_KEY_PREFIX")+"sessao:1", "valor", 0)
 
 ## S3 (SeaweedFS)
 
-Endereço: `http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333`, **sem TLS e com endereçamento por caminho** (path-style:
-`/<bucket>/<chave>`). A região pode ser qualquer uma (`us-east-1`). Cada identidade só enxerga o próprio bucket.
+O Secret traz `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (as chaves padrão do SDK da AWS, lidas sozinhas do ambiente),
+`S3_ENDPOINT` (`http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333`), `S3_BUCKET` e `S3_REGION` (`us-east-1`).
+
+Dois detalhes do endereço: **sem TLS** e **com endereçamento por caminho** (path-style: `/<bucket>/<chave>`, por isso o
+`forcePathStyle`). Cada identidade só lê, grava, lista e apaga no **próprio bucket**: não cria buckets nem enxerga os dos outros.
 
 Node (AWS SDK v3):
 ```js
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 const s3 = new S3Client({
-  endpoint: 'http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333',
-  region: 'us-east-1',
+  endpoint: process.env.S3_ENDPOINT,
+  region: process.env.S3_REGION,
   forcePathStyle: true,
   // credenciais: AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY do ambiente
 });
-await s3.send(new PutObjectCommand({ Bucket: 'meuapp', Key: 'pasta/arquivo.txt', Body: 'conteúdo' }));
+await s3.send(new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: 'pasta/arquivo.txt', Body: 'conteúdo' }));
 ```
 
 Go (AWS SDK v2):
 ```go
 cfg, _ := config.LoadDefaultConfig(ctx, config.WithRegion("us-east-1")) // credenciais: variáveis AWS_*
 client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-	o.BaseEndpoint = aws.String("http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333")
+	o.BaseEndpoint = aws.String(os.Getenv("S3_ENDPOINT"))
 	o.UsePathStyle = true
 })
 ```
 
-**Como conseguir um bucket e uma chave.** Hoje **não há script** para isso (só o bucket `observability-local`, do Loki e do
-Tempo, é criado automaticamente). O procedimento manual, na VPS, é:
-1. Gere uma chave e um segredo aleatórios (`openssl rand -hex 8` e `openssl rand -hex 24`).
-2. Edite o JSON do Secret `seaweedfs-s3-config` (namespace `seaweedfs`) e acrescente uma identidade com
-   `"actions": ["Read:meuapp", "Write:meuapp", "List:meuapp", "Tagging:meuapp"]`.
-3. Crie o bucket com a identidade `admin` (`PUT /meuapp`, assinado com a chave do Secret `seaweedfs-admin`).
-4. Reinicie o `seaweedfs-0`: `sudo k3s kubectl -n seaweedfs rollout restart statefulset/seaweedfs`. O Loki e o Tempo ficam
-   alguns instantes sem o S3 durante o reinício.
-5. Guarde a chave num Secret na namespace da aplicação (`AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY`).
+**Como conseguir um bucket e uma chave:** o script [new-bucket.sh](../templates/seaweedfs/new-bucket.sh) (passo 3 do checklist).
+- A chave **vale na hora**, sem reiniciar nada, e o Loki e o Tempo não são afetados.
+- Se o bucket ou a identidade já existir, o script aborta sem alterar nada. Se algo falhar no meio, ele desfaz o que criou.
+- Os nomes `admin`, `loki`, `tempo` e `observability-local` são reservados.
+- As chaves geradas ficam no Secret da aplicação **e** no volume do SeaweedFS (é de lá que ele as lê). Para remover uma
+  identidade e o bucket, veja o cabeçalho do script; apagar o bucket apaga os objetos.
 
-Um sanity check do seu PC, pela VPN e com túnel, está no [gitops/README.md](../gitops/README.md#armazenamento-de-objetos-seaweedfs).
+Sanity check do seu PC, pela VPN e com túnel: [gitops/README.md](../gitops/README.md#armazenamento-de-objetos-seaweedfs).
 Sem backup e sem replicação: é um nó só.
 
 ## Telemetria (OpenTelemetry)

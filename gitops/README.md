@@ -238,7 +238,11 @@ logs e traces (a API e o Postgres) ainda não rodam, o esperado é não haver na
   controlador de rede do k3s a aplica sem atrapalhar a comunicação interna do pod.
 - O log do SeaweedFS mostra um erro de STS ("no signing key found"): ele se refere a tokens temporários, que não usamos,
   e não afetou as identidades estáticas nos testes.
-- **Novos buckets e identidades:** edite o JSON do Secret `seaweedfs-s3-config` e reinicie o `seaweedfs-0`.
+- **Novos buckets e identidades:** `templates/seaweedfs/new-bucket.sh` (veja o guia das aplicações). Ele usa o `weed shell`
+  dentro do pod: cria a identidade (escopo só no bucket), o bucket com ela como dona e o Secret na namespace da aplicação.
+  Vale na hora, sem reiniciar. As identidades criadas assim ficam gravadas no volume do SeaweedFS (sobrevivem a reinícios), junto das
+  estáticas do `s3.json` (marcadas `isStatic` no `s3.configure`), que continuam intactas. **Cuidado:** o comando
+  `s3.configure` do `weed shell` imprime as chaves de todas as identidades em texto; não o rode em lugares que gravam a saída.
 
 ## Redis compartilhado (infra)
 
