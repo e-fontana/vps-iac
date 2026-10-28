@@ -163,6 +163,40 @@ Deployment do [manifest da API](../gitops/manifests/api/api.yaml) já define as 
 - Onde olhar: Grafana (`https://grafana.eduardofontana.dev`), **Explore** com os datasources Tempo e Loki. Detalhes em
   [gitops/README.md](../gitops/README.md#logs-traces-e-métricas-da-api-opentelemetry).
 
+## Imagem privada e tokens do CI
+
+Se o repositório da aplicação é privado, a imagem no GHCR também é (pacotes novos nascem privados). São **dois tokens
+diferentes**, em lugares diferentes:
+
+| Token | Para quê | Onde fica | Tipo |
+|---|---|---|---|
+| `GITOPS_TOKEN` | o CI da aplicação gravar a tag nova da imagem no `vpn-iac` | secret do GitHub Actions do repositório **da aplicação** | *fine-grained*, só o repositório `vpn-iac`, permissão **Contents: Read and write** |
+| token de pull | a VPS baixar a imagem privada | Secret do Kubernetes `ghcr-pull`, na namespace da app | **classic**, só o escopo `read:packages` (o GHCR não aceita *fine-grained*) |
+
+O ArgoCD não precisa de token nenhum: o `vpn-iac` é público e ele nunca clona o repositório da aplicação.
+
+**`GITOPS_TOKEN`** (os caminhos de menu do GitHub podem mudar):
+1. GitHub, foto do perfil, **Settings**, **Developer settings**, **Personal access tokens**, **Fine-grained tokens**, **Generate new token**.
+2. Em *Repository access*, escolha **Only select repositories** e marque `vpn-iac`. Em *Repository permissions*, **Contents: Read and write**.
+3. Defina a validade (quando o token expirar, o CI falha na hora de gravar a tag) e gere.
+4. No repositório da aplicação: **Settings**, **Secrets and variables**, **Actions**, **New repository secret**, nome `GITOPS_TOKEN`.
+5. Se a branch `main` do `vpn-iac` tiver proteção, o `push` do CI será recusado.
+
+**Pull da imagem (`imagePullSecret`):**
+1. Gere um token **classic** só com `read:packages`: <https://github.com/settings/tokens/new?scopes=read:packages>.
+2. Da raiz deste repositório, rode (ele pede o usuário e o token sem eco, e o token não vira argumento nem aparece na tela):
+   ```bash
+   KUBECTL="ssh ubuntu@100.95.76.83 sudo k3s kubectl" bash templates/api/create-pull-secret.sh meuapp ghcr-pull
+   ```
+3. O [manifest da API](../gitops/manifests/api/api.yaml) já referencia o Secret (`imagePullSecrets: [{name: ghcr-pull}]`).
+4. Para trocar um token expirado, rode o mesmo comando de novo: ele atualiza o Secret.
+
+Alternativa sem token de pull: tornar o pacote público (a página do pacote no GitHub, **Package settings**, **Change visibility**).
+O preço é que as camadas da imagem, com o código compilado da aplicação, ficam públicas.
+
+O script foi testado contra um registry privado local com senha (o `docker pull` com o Secret gerado funcionou, e com token
+errado ou sem credencial foi recusado). Não foi testado contra o GHCR de verdade nem no cluster.
+
 ## Expor a API
 
 O Ingress usa o Traefik (`ingressClassName: traefik`) e o cert-manager emite o certificado (anotação

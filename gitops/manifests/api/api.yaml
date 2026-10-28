@@ -18,6 +18,11 @@ spec:
       labels:
         app: api
     spec:
+      # Imagem privada no GHCR: Secret criado por templates/api/create-pull-secret.sh (fora do Git).
+      # Se o Secret ainda não existir, o kubelet avisa e tenta baixar sem credenciais, o que basta
+      # para a imagem pública de teste.
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: api
           image: api-image
