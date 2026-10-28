@@ -4,12 +4,17 @@ namespace: api
 resources:
   - namespace.yaml
   - api.yaml
+  - migrate-job.yaml
   - ingress.yaml
 images:
   # "api-image" é o nome lógico usado no Deployment. Por enquanto aponta para uma imagem de
   # teste (traefik/whoami) só para validar DNS, TLS e ingress antes de existir código.
   # O CI (templates/api/github-actions.yml) reescreve este bloco a cada deploy com:
-  #   kustomize edit set image api-image=ghcr.io/e-fontana/api:<sha>
+  #   kustomize edit set image api-image=ghcr.io/e-fontana/api:<sha> migrate-image=ghcr.io/e-fontana/api-migrate:<sha>
   - name: api-image
     newName: traefik/whoami
     newTag: v1.12.0
+  # "migrate-image" é a imagem do Job de migração (migrate-job.yaml). O placeholder termina na hora, sem migrar nada.
+  - name: migrate-image
+    newName: busybox
+    newTag: "1.37"

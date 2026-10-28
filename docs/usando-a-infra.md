@@ -73,8 +73,31 @@ pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 
 - O usuário é dono só do banco dele; os outros bancos negam a conexão.
 - É **uma instância** para todas as apps: o Postgres aceita 100 conexões no total por padrão, então mantenha o pool pequeno.
-- **Migrações:** rode no start da aplicação ou em um Job; o usuário é dono do banco e pode criar tabelas.
+- **Migrações:** o usuário é dono do banco e pode criar tabelas. O padrão é um Job que roda antes de cada deploy, veja [Migrações do banco](#migrações-do-banco).
 - **Sem backup automático**: os dados ficam no disco da VPS.
+
+## Migrações do banco
+
+Para uma aplicação com migrações (a API usa Prisma), o padrão é um **Job do ArgoCD no hook `PreSync`**, que roda e termina com
+sucesso **antes** de o ArgoCD atualizar o Deployment: [migrate-job.yaml](../gitops/manifests/api/migrate-job.yaml).
+
+- **Imagem separada.** A imagem final da aplicação é podada (`pnpm prune --prod`) e não tem o CLI do Prisma nem a pasta
+  `prisma/`, então não consegue migrar. O `Dockerfile` da API tem um alvo `migrate` (`docker build --target migrate`) com as duas
+  coisas, e o CI publica as duas imagens (`api` e `api-migrate`) e atualiza as duas tags (`api-image` e `migrate-image`) no
+  [kustomization.yaml](../gitops/manifests/api/kustomization.yaml).
+- **Sem migrações pendentes, o Job não faz nada** (`No pending migrations to apply`), então ele roda em todo deploy sem custo.
+- **Se a migração falhar, o deploy para:** o `PreSync` falha e a versão antiga da API continua no ar. Veja o motivo com
+  `kubectl -n api logs job/api-migrate` (o último Job fica no cluster e é recriado no deploy seguinte).
+- **Compatibilidade:** a migração roda antes de a versão nova subir, então ela precisa ser compatível com a versão antiga da
+  aplicação (adicione colunas e tabelas primeiro, remova só num deploy posterior).
+- **Pré-requisitos:** a namespace `api` e o Secret `api-db` já existem (`templates/postgres/new-database.sh`), porque o `PreSync` roda
+  antes do resto da Application.
+- **Enquanto o kustomization aponta o placeholder** (`busybox`), o Job termina na hora e não migra nada; serve para testar a
+  infra com a imagem de teste da API.
+
+Testado: a imagem `migrate` (amd64) aplicou as 2 migrações da API num Postgres vazio em 2 segundos, como usuário não root, e a
+segunda execução não fez nada. **Não** foi testado: o build em `arm64` (a VPS é ARM; o motor de migração do Prisma é um binário por
+arquitetura, baixado durante o build) nem a execução como hook dentro do cluster.
 
 ## Redis
 
@@ -134,6 +157,12 @@ client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 	o.UsePathStyle = true
 })
 ```
+
+**Armadilha com OpenTelemetry (assinatura SigV4):** se a aplicação acrescenta um cabeçalho à requisição ao S3 **antes** de
+assinar (por exemplo o `traceparent`, no passo `build` do SDK) e a instrumentação `http` do OpenTelemetry o **reescreve** ao enviar,
+a assinatura deixa de bater e o S3 responde **403**. O SDK mostra só `UnknownError`, porque um `HEAD` não tem corpo. Foi o que
+travou o `readiness` da API (503 em `storage`). Registre o cabeçalho **depois** da assinatura (`step: 'finalizeRequest'`, `priority: 'low'`):
+ele continua sendo enviado, só que fora dos `SignedHeaders`. Verificado com a API contra o SeaweedFS.
 
 **Como conseguir um bucket e uma chave:** o script [new-bucket.sh](../templates/seaweedfs/new-bucket.sh) (passo 3 do checklist).
 - A chave **vale na hora**, sem reiniciar nada, e o Loki e o Tempo não são afetados.
@@ -216,5 +245,6 @@ leva de 1 a 2 minutos; só funciona pela VPN.
 | Postgres: `permission denied for database` | Conectando no banco de outra aplicação |
 | Postgres: `password authentication failed` | Senha ou usuário errados; releia o Secret |
 | S3: `403` / `AccessDenied` | Bucket de outra identidade, ou a identidade ainda não foi criada |
+| S3: `UnknownError` (um `HEAD` com 403) só com o OpenTelemetry ligado | Cabeçalho assinado e depois reescrito pela instrumentação `http`: veja a armadilha na seção S3 |
 | S3: `InvalidBucketName`, erro de DNS ou `NoSuchBucket` | Faltou `forcePathStyle` (o SDK tenta `<bucket>.<host>`), ou o bucket não foi criado |
 | Imagem `exec format error` | Imagem `amd64`; a VPS é `arm64` |

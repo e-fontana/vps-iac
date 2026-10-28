@@ -4,8 +4,8 @@
 #
 # Uso (na VPS, ou de fora via ssh):
 #   ssh ubuntu@<ip-da-vps> 'bash -s -- <banco> <namespace> [nome-do-secret]' < templates/postgres/new-database.sh
-# Exemplo (banco da API, Secret "api-env" na namespace "api"):
-#   ssh ubuntu@100.95.76.83 'bash -s -- api api api-env' < templates/postgres/new-database.sh
+# Exemplo (banco da API, Secret "api-db" na namespace "api"):
+#   ssh ubuntu@100.95.76.83 'bash -s -- api api api-db' < templates/postgres/new-database.sh
 #
 # Variáveis: KUBECTL (padrão: "sudo k3s kubectl").
 # O que faz: usuário e banco com o mesmo nome; só esse usuário conecta no banco (CONNECT é revogado

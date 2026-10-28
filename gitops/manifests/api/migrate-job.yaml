@@ -1,0 +1,37 @@
+# Aplica as migrações do Prisma antes de cada deploy da API (hook PreSync do ArgoCD): roda e termina com sucesso
+# ANTES de o ArgoCD atualizar o Deployment. Sem migrações pendentes, não faz nada.
+#
+# A imagem "migrate-image" é o alvo `migrate` do Dockerfile da API (ghcr.io/e-fontana/api-migrate:<sha>); o CI troca a
+# tag no kustomization.yaml junto com a da API. Enquanto o kustomization aponta o placeholder (busybox), o contêiner
+# termina na hora e nada é migrado: serve para testar a infra com a imagem de teste da API.
+#
+# Pré-requisitos: a namespace "api" e o Secret "api-db" (DATABASE_URL) já existem (templates/postgres/new-database.sh),
+# porque o PreSync roda antes do resto da Application. O último Job fica no cluster para consulta
+# (kubectl -n api logs job/api-migrate) e é recriado no próximo deploy.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: api-migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: migrate
+          image: migrate-image
+          envFrom:
+            - secretRef:
+                name: api-db
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi

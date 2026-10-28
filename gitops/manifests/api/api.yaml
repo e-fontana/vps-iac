@@ -1,7 +1,12 @@
-# A API. A imagem é definida no kustomization.yaml (nome lógico "api-image").
-# A aplicação deve ouvir na porta 8080 (variável PORT) e ler DATABASE_URL do ambiente.
-# DATABASE_URL vem do Secret "api-env", criado por templates/postgres/new-database.sh (o banco da API
-# fica no Postgres compartilhado da infra): veja gitops/README.md.
+# A API (NestJS). A imagem é definida no kustomization.yaml (nome lógico "api-image").
+# Escuta em 0.0.0.0:8080 (variável PORT) e lê a configuração do ambiente. Os Secrets (na namespace "api") são
+# criados pelos scripts em templates/, fora do Git: veja docs/usando-a-infra.md.
+#   api-db     DATABASE_URL                                              templates/postgres/new-database.sh
+#   api-redis  REDIS_URL, REDIS_USERNAME, REDIS_PASSWORD, REDIS_KEY_PREFIX   templates/redis/new-user.sh
+#   api-s3     S3_ENDPOINT, S3_BUCKET, S3_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY   templates/seaweedfs/new-bucket.sh
+# As migrações do banco rodam antes de cada deploy, no Job migrate-job.yaml (hook PreSync).
+# E-mail: o padrão da API é MAIL_PROVIDER=console (os e-mails vão para o log). Para enviar de verdade, defina
+# MAIL_PROVIDER=resend e MAIL_FROM aqui e crie um Secret com RESEND_API_KEY.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,26 +50,41 @@ spec:
               value: deployment.environment=prod,k8s.namespace.name=api
           envFrom:
             - secretRef:
-                name: api-env
+                name: api-db
+            - secretRef:
+                name: api-redis
+            - secretRef:
+                name: api-s3
           securityContext:
             allowPrivilegeEscalation: false
-          # tcpSocket funciona com qualquer API; troque por httpGet /healthz quando existir
+          # /v1/health: o processo responde. /v1/health/ready: também checa Postgres, Redis e o bucket S3
+          # (503 se alguma dependência falhar, e o pod sai do Service). O startupProbe dá até 2 minutos para
+          # subir (NestJS + OpenTelemetry num ARM com 50m de CPU) sem o liveness matar o pod.
+          startupProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            periodSeconds: 3
+            failureThreshold: 40
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /v1/health/ready
               port: http
-            initialDelaySeconds: 3
             periodSeconds: 10
+            timeoutSeconds: 3
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /v1/health
               port: http
-            initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 3
+          # Medido em repouso (imagem amd64 em Docker): ~155 MiB. O limite deixa folga para picos e para o OpenTelemetry.
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 192Mi
             limits:
-              memory: 256Mi
+              memory: 512Mi
 ---
 apiVersion: v1
 kind: Service

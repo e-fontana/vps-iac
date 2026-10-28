@@ -176,7 +176,7 @@ O script cria o usuário e o banco (mesmo nome), revoga o acesso dos outros usu�
 `DATABASE_URL` num Secret na namespace da aplicação. A senha é aleatória e não é impressa:
 ```bash
 # uso: new-database.sh <banco> <namespace> [nome-do-secret]
-ssh ubuntu@100.95.76.83 'bash -s -- api api api-env' < templates/postgres/new-database.sh
+ssh ubuntu@100.95.76.83 'bash -s -- api api api-db' < templates/postgres/new-database.sh
 ssh ubuntu@100.95.76.83 'bash -s -- billing billing'  < templates/postgres/new-database.sh   # outro banco
 ```
 Se o banco já existir, o script aborta sem alterar nada. Para listar: `\l` no `psql`.
@@ -297,9 +297,9 @@ Até existir imagem própria, a API roda a imagem de teste `traefik/whoami`: ser
 TLS e ingress antes de escrever código.
 
 ### 1. Banco e Secret da API (na VPS; nada vai ao Git)
-Com o Postgres compartilhado no ar, um comando cria o banco `api` e o Secret `api-env` (namespace `api`):
+Com o Postgres compartilhado no ar, um comando cria o banco `api` e o Secret `api-db` (namespace `api`):
 ```bash
-ssh ubuntu@100.95.76.83 'bash -s -- api api api-env' < templates/postgres/new-database.sh
+ssh ubuntu@100.95.76.83 'bash -s -- api api api-db' < templates/postgres/new-database.sh
 ```
 `sslmode=disable` na URL porque o tráfego fica dentro do cluster. **Crie o Secret antes do Sync**, ou o pod
 da API fica em `CreateContainerConfigError`.
