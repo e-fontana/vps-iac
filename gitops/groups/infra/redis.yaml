@@ -1,0 +1,24 @@
+# Redis compartilhado (StatefulSet + exporter), em gitops/manifests/redis.
+#
+# Pré-requisito: o Secret "redis-credentials", criado por templates/redis/create-secret.sh (veja
+# gitops/README.md), ANTES do push: sem ele o pod fica em CreateContainerConfigError.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: redis
+  namespace: argocd
+  labels:
+    group: infra
+spec:
+  project: infra
+  source:
+    repoURL: https://github.com/e-fontana/vpn-iac.git
+    targetRevision: main
+    path: gitops/manifests/redis
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: redis
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

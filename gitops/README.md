@@ -1,5 +1,8 @@
 # GitOps
 
+Este arquivo é a visão de **operação** da infra. Para quem desenvolve aplicações (como usar o Postgres, o Redis, o S3 e a
+telemetria, com exemplos de código): [docs/usando-a-infra.md](../docs/usando-a-infra.md).
+
 ```
 gitops/
 ├── apps/                     # o root lê só aqui: projetos + uma Application por grupo
@@ -11,7 +14,7 @@ gitops/
 ├── groups/
 │   ├── networking/           # cert-manager, cert-manager-config, traefik, argocd-ingress, tailscale-operator
 │   ├── observability/        # prometheus, loki, tempo, alloy, grafana
-│   ├── infra/                # postgres (compartilhado) e seaweedfs (S3 local)
+│   ├── infra/                # postgres, redis (compartilhados) e seaweedfs (S3 local)
 │   └── workloads/            # api (aplicações próprias)
 └── manifests/                # YAML simples usados pelas Applications (ClusterIssuer, Ingress)
 ```
@@ -237,6 +240,49 @@ logs e traces (a API e o Postgres) ainda não rodam, o esperado é não haver na
   e não afetou as identidades estáticas nos testes.
 - **Novos buckets e identidades:** edite o JSON do Secret `seaweedfs-s3-config` e reinicie o `seaweedfs-0`.
 
+## Redis compartilhado (infra)
+
+`groups/infra/redis.yaml` aplica `manifests/redis`: namespace `redis`, um Redis 8.10 (imagem alpine, StatefulSet), 1 réplica,
+persistência AOF em 5 Gi de `local-path`, com o `redis_exporter` ao lado. É **uma instância para várias aplicações**: cada
+uma tem o seu usuário (ACL), restrito às chaves com o prefixo `<app>:`. Fica em `redis.redis.svc.cluster.local:6379`, só
+dentro do cluster. A Application é **automática**, então o Secret precisa existir antes do push.
+
+### Ordem para ativar
+**Rode o script ANTES do `git push`** (sem o Secret, o pod fica em `CreateContainerConfigError`):
+```bash
+ssh ubuntu@100.95.76.83 'bash -s' < templates/redis/create-secret.sh
+```
+Ele gera a senha do administrador (aleatória, via stdin, nunca impressa) e cria `redis/redis-credentials`; se já existir,
+aborta sem alterar nada. Depois do push e do refresh do `root`: `sudo k3s kubectl -n redis get pods,pvc` (esperado:
+`redis-0` com 2/2 contêineres `Running` e o volume `Bound`).
+
+### Usuário de uma aplicação
+```bash
+# uso: new-user.sh <app> <namespace> [nome-do-secret]
+ssh ubuntu@100.95.76.83 'bash -s -- api api api-redis' < templates/redis/new-user.sh
+```
+Cria o usuário `api`, que só acessa chaves e canais `api:*`, e grava um Secret na namespace da aplicação com `REDIS_URL`,
+`REDIS_USERNAME`, `REDIS_PASSWORD` e `REDIS_KEY_PREFIX`. O usuário é gravado em `/data/users.acl` e sobrevive a
+reinícios. Se já existir, o script aborta. **A aplicação precisa prefixar as chaves** com `REDIS_KEY_PREFIX` (por exemplo,
+a opção `keyPrefix` do ioredis); sem o prefixo, o Redis responde `NOPERM`.
+
+### O que a ACL isola e o que não isola
+Testei com um Redis de verdade. O usuário de uma app **não** lê nem escreve chaves e canais de outro prefixo, e não roda
+`FLUSHALL`, `CONFIG`, `KEYS`, `RANDOMKEY` nem `DBSIZE`. Mas o `SCAN` continua liberado (muitas apps dependem dele) e
+**lista os nomes das chaves de todos os usuários**, não os valores. Serve para evitar colisões e acidentes entre as suas
+aplicações, não para isolar terceiros. Para bloquear: `ACL SETUSER <app> -scan` e `ACL SAVE`.
+
+### Operação
+- **Memória:** `maxmemory 512mb` com política `noeviction`: nada é descartado em silêncio, e no limite as escritas falham.
+  Se for só cache, troque por `allkeys-lru` em `manifests/redis/redis.yaml`. O limite do contêiner é 1 Gi.
+- **Admin:** `sudo k3s kubectl -n redis exec -it redis-0 -c redis -- sh -c 'redis-cli -a "$REDIS_PASSWORD"'`.
+- **Trocar a senha do admin:** apague o Secret, rode o script de novo e `sudo k3s kubectl -n redis rollout restart statefulset/redis`
+  (o start reescreve o usuário default a partir do Secret e mantém os usuários das apps).
+- **Sem backup:** os dados (AOF e ACLs) ficam no disco da VPS.
+- **Observabilidade:** o job `redis` do Prometheus coleta o exporter (`redis_up` fica `0` se a senha estiver errada), o
+  dashboard *Redis Dashboard for Prometheus Redis Exporter* (763) já vem provisionado no Grafana e os logs vão para o Loki.
+- Não analisei os termos de licença do Redis 8 (o GitHub não identifica uma licença única); o Valkey é o fork BSD, se isso importar.
+
 ## API própria (Go ou NestJS)
 
 `groups/workloads/api.yaml` descreve `manifests/api` (hoje **sem sync automático**: a Application fica `OutOfSync`
@@ -274,6 +320,7 @@ No repositório da API (separado deste):
 4. A cada push na `main`, o CI publica a imagem `linux/arm64`, troca a tag no `kustomization.yaml` e o
    ArgoCD aplica. Migrações: rode no start da API ou em um Job.
 
+- Redis: `bash -s -- api api api-redis` com `templates/redis/new-user.sh` cria o usuário e o Secret `api-redis` (seção acima).
 - Métricas da API: descomente as anotações `prometheus.io/*` no Service em `manifests/api/api.yaml`.
 
 ## Logs, traces e métricas da API (OpenTelemetry)
@@ -286,7 +333,7 @@ Nada disso foi testado com uma API de verdade.
 
 ```
 API ──OTLP──► alloy:4318 ──► Tempo (traces) · Prometheus (métricas, via remote_write) · Loki (logs OTLP)
-pods das namespaces "api" e "postgres" ──► Alloy (lê pela API do Kubernetes) ──► Loki
+pods das namespaces "api", "postgres", "seaweedfs" e "redis" ──► Alloy (lê pela API do Kubernetes) ──► Loki
 postgres_exporter (sidecar do Postgres) ──► Prometheus (job "postgres")
 ```
 
@@ -294,7 +341,7 @@ postgres_exporter (sidecar do Postgres) ──► Prometheus (job "postgres")
 - **Exportar OTLP.** O Deployment já define `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`
   (`http://alloy.monitoring.svc.cluster.local:4318`) e `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`.
   Basta o SDK do OpenTelemetry da linguagem (Go ou Node) ler essas variáveis.
-- **Logs em JSON no stdout, com `trace_id`.** O Alloy coleta o stdout dos pods das namespaces `api` e `postgres`, então os
+- **Logs em JSON no stdout, com `trace_id`.** O Alloy coleta o stdout dos pods das namespaces `api`, `postgres`, `seaweedfs` e `redis`, então os
   logs da API e do Postgres ficam no mesmo Loki (`{namespace=~"api|postgres"}`). No Loki, o campo `trace_id` do
   JSON vira um link para o trace no Tempo. (A API também pode mandar logs por OTLP; escolha um dos dois
   para não duplicar.)

@@ -1,0 +1,128 @@
+# Redis COMPARTILHADO da infra: uma instância para várias aplicações, cada uma com o seu usuário (ACL),
+# restrito às chaves com o prefixo "<app>:". 1 réplica, persistência AOF em volume local-path do k3s
+# (disco da própria VPS, sem backup). Só é alcançável dentro do cluster: redis.redis.svc.cluster.local:6379.
+#
+# Senha do usuário admin (default) no Secret "redis-credentials" (chave REDIS_PASSWORD), criado por
+# templates/redis/create-secret.sh: nada disso vai ao Git. Para o usuário de uma aplicação (ACL + Secret
+# com REDIS_URL na namespace dela): templates/redis/new-user.sh.
+#
+# Memória: maxmemory 512mb com política noeviction (nada é descartado em silêncio: no limite, as escritas
+# falham). Se for só cache, troque por allkeys-lru. O limite do contêiner (1Gi) deixa folga para o AOF rewrite.
+# As ACLs ficam em /data/users.acl (persistidas no volume). A cada start, a linha do usuário default é
+# reescrita a partir do Secret (trocar a senha = trocar o Secret e reiniciar); os demais usuários são mantidos.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+# Métricas do Redis para o Prometheus (job "redis", em extraScrapeConfigs do prometheus.yaml)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-metrics
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: metrics
+      port: 9121
+      targetPort: 9121
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:8.10.3-alpine
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              touch /data/users.acl
+              grep -v '^user default ' /data/users.acl > /tmp/users.acl || true
+              printf 'user default on >%s ~* &* +@all\n' "$REDIS_PASSWORD" >> /tmp/users.acl
+              cp /tmp/users.acl /data/users.acl
+              exec docker-entrypoint.sh redis-server \
+                --aclfile /data/users.acl \
+                --appendonly yes --appendfsync everysec \
+                --maxmemory 512mb --maxmemory-policy noeviction
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: REDIS_PASSWORD
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli --no-auth-warning -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli --no-auth-warning -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+        - name: exporter
+          image: oliver006/redis_exporter:v1.96.0
+          env:
+            - name: REDIS_ADDR
+              value: redis://localhost:6379
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: REDIS_PASSWORD
+          ports:
+            - name: metrics
+              containerPort: 9121
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

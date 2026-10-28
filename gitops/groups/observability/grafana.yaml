@@ -122,6 +122,14 @@ spec:
             postgresql:
               gnetId: 14114
               revision: 1
+            # Redis Dashboard for Prometheus Redis Exporter (763): painéis modernos (stat/timeseries);
+            # filtra só por namespace/instance (labels do job "redis") e tem um input só (DS_PROM)
+            redis:
+              gnetId: 763
+              revision: 6
+              datasource:
+                - name: DS_PROM
+                  value: Prometheus
         ingress:
           enabled: true
           ingressClassName: traefik

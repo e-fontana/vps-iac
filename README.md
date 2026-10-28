@@ -10,6 +10,8 @@ cloud/
 │   │   ├── network/    # VCN, subnet, security list (sem portas públicas além do SSH temporário)
 │   │   └── compute/    # instância Ubuntu + bootstrap (Tailscale, k3s, ArgoCD, ArgoCD)
 │   └── envs/prod/      # onde se roda o terraform (tfvars, providers, chamada dos módulos)
+├── docs/
+│   └── usando-a-infra.md  # guia para as aplicações: Postgres, Redis, S3, telemetria e checklist
 └── gitops/
     ├── apps/           # projetos e um Application por grupo (o que o root lê)
     ├── groups/         # as Applications de cada grupo (networking, observability)
@@ -65,6 +67,10 @@ O ArgoCD instala o operator a partir de `gitops/groups/networking/tailscale-oper
 `gitops/groups/` também sobe cert-manager, Traefik, Prometheus e Grafana
 (`argocd.eduardofontana.dev` e `grafana.eduardofontana.dev`, sem porta). **A ordem importa**:
 siga `gitops/README.md` (secrets e liberação da porta 443) antes do `git push`.
+
+### 8. Desenvolver uma aplicação
+Como uma aplicação usa o Postgres, o Redis, o S3 e a telemetria, e o passo a passo de uma aplicação nova:
+[docs/usando-a-infra.md](docs/usando-a-infra.md).
 
 ## Atenção
 - `terraform.tfvars`, `*.tfstate` e `*.pem` estão no `.gitignore`. A auth key do Tailscale fica
