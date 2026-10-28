@@ -38,7 +38,7 @@ if ! grep -qF '"identities"' <<<"$STATE"; then
   echo "não consegui falar com o SeaweedFS (o pod seaweedfs-0 está no ar?)" >&2
   exit 1
 fi
-if grep -qF "\"name\": \"$BUCKET\"" <<<"$STATE"; then
+if grep -qE "\"name\":[[:space:]]*\"$BUCKET\"" <<<"$STATE"; then
   echo "a identidade '$BUCKET' já existe; nada foi alterado" >&2
   exit 1
 fi
@@ -65,7 +65,7 @@ fi
 unset OUT
 
 CHECK=$(printf 's3.configure\n' | wshell)
-if ! grep -qF "\"name\": \"$BUCKET\"" <<<"$CHECK"; then
+if ! grep -qE "\"name\":[[:space:]]*\"$BUCKET\"" <<<"$CHECK"; then
   undo_all
   echo "a identidade '$BUCKET' não aparece na configuração depois de criada; o que foi criado foi desfeito" >&2
   exit 1
