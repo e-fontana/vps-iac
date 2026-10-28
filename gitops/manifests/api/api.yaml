@@ -1,6 +1,6 @@
 # A API (NestJS). A imagem é definida no kustomization.yaml (nome lógico "api-image").
 # Escuta em 0.0.0.0:8080 (variável PORT) e lê a configuração do ambiente. Os Secrets (na namespace "api") são
-# criados pelos scripts em templates/, fora do Git: veja docs/usando-a-infra.md.
+# criados pelos scripts em templates/, fora do Git: veja docs/aplicacoes/publicar-a-api.md.
 #   api-db     DATABASE_URL                                              templates/postgres/new-database.sh
 #   api-redis  REDIS_URL, REDIS_USERNAME, REDIS_PASSWORD, REDIS_KEY_PREFIX   templates/redis/new-user.sh
 #   api-s3     S3_ENDPOINT, S3_BUCKET, S3_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY   templates/seaweedfs/new-bucket.sh

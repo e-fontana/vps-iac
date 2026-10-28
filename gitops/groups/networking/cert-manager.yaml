@@ -1,6 +1,6 @@
 # cert-manager: emite os certificados TLS (Let's Encrypt, DNS-01 na Cloudflare).
 # Onda 0: precisa existir antes do ClusterIssuer e dos Ingress.
-# Pré-requisito: Secret "cloudflare-api-token" na namespace cert-manager (veja gitops/README.md).
+# Pré-requisito: Secret "cloudflare-api-token" na namespace cert-manager (veja docs/rede-e-certificados/dominio-e-certificados.md).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

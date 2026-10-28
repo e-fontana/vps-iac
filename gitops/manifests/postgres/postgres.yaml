@@ -3,7 +3,7 @@
 # Só é alcançável dentro do cluster: postgres.postgres.svc.cluster.local:5432.
 #
 # Superusuário em Secret "postgres-credentials" (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB),
-# criado à mão: veja gitops/README.md. Para criar o banco de uma aplicação (usuário + banco + Secret
+# criado à mão: veja docs/servicos/postgres.md. Para criar o banco de uma aplicação (usuário + banco + Secret
 # com DATABASE_URL na namespace dela): templates/postgres/new-database.sh.
 #
 # Logs: statements lentos (>250 ms) e esperas por lock vão para o stdout; o Alloy os envia ao Loki.

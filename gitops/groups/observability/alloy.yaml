@@ -1,7 +1,7 @@
 # Grafana Alloy: coletor único.
 #   - recebe OTLP da API (4317 gRPC / 4318 HTTP): traces -> Tempo, métricas -> Prometheus, logs -> Loki
 #   - lê os logs dos pods das namespaces "api", "postgres", "seaweedfs" e "redis" e envia ao Loki
-# A API deve exportar para http://alloy.monitoring.svc.cluster.local:4318 (veja gitops/README.md).
+# A API deve exportar para http://alloy.monitoring.svc.cluster.local:4318 (veja docs/observabilidade/logs-traces-e-metricas.md).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

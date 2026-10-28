@@ -1,9 +1,9 @@
 # A API (Deployment + Service + Ingress) e o Postgres dela, em gitops/manifests/api.
 # O Kustomize é detectado pelo kustomization.yaml; o CI atualiza a imagem lá.
 #
-# SEM sync automático de propósito: a API ainda não existe. A Application aparece como OutOfSync
-# no ArgoCD e nada é criado no cluster. Para fazer o deploy, siga a seção "API própria" do
-# gitops/README.md (Secrets e DNS primeiro) e então:
+# SEM sync automático de propósito: o deploy só acontece quando você manda (release ou disparo manual
+# do CI, depois um Sync aqui). Sem sync, a Application aparece como OutOfSync no ArgoCD. Os Secrets e
+# o DNS vêm primeiro (docs/aplicacoes/publicar-a-api.md); então:
 #   - clique em Sync na interface, ou
 #   - restaure o bloco abaixo (e faça push) para voltar ao sync automático:
 #       syncPolicy:

@@ -1,7 +1,7 @@
 # Grafana em https://grafana.eduardofontana.dev, com o Prometheus como datasource padrão
 # e dashboards do grafana.com (Node Exporter Full, kube-state-metrics, PostgreSQL, Redis) mais os próprios
 # (gitops/manifests/grafana-dashboards).
-# Pré-requisito: Secret "grafana-admin" na namespace monitoring (veja gitops/README.md).
+# Pré-requisito: Secret "grafana-admin" na namespace monitoring (veja docs/rede-e-certificados/dominio-e-certificados.md).
 # O download dos dashboards roda no start do pod e precisa de acesso a grafana.com.
 apiVersion: argoproj.io/v1alpha1
 kind: Application

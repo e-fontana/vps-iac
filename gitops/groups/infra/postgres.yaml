@@ -1,7 +1,7 @@
 # Postgres compartilhado (StatefulSet + exporter), em gitops/manifests/postgres.
 #
 # SEM sync automático de propósito: o Secret "postgres-credentials" precisa existir antes (senão o
-# pod fica em CreateContainerConfigError). Crie-o (gitops/README.md, seção "Postgres compartilhado")
+# pod fica em CreateContainerConfigError). Crie-o (docs/servicos/postgres.md)
 # e então clique em Sync na interface, ou restaure o bloco abaixo (e faça push) para o sync automático:
 #       syncPolicy:
 #         automated:

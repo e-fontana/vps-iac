@@ -1,7 +1,7 @@
 # SeaweedFS: S3 local da infra (gitops/manifests/seaweedfs). O Loki e o Tempo guardam os dados dele
 # no bucket observability-local.
 #
-# Pré-requisito: os Secrets criados por templates/seaweedfs/create-secrets.sh (veja gitops/README.md),
+# Pré-requisito: os Secrets criados por templates/seaweedfs/create-secrets.sh (veja docs/servicos/armazenamento-s3.md),
 # ANTES do push: sem eles o SeaweedFS não sobe e o Loki/Tempo ficam sem armazenamento.
 apiVersion: argoproj.io/v1alpha1
 kind: Application

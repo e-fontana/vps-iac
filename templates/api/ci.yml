@@ -1,0 +1,53 @@
+# Modelo de CI (testes e build de verificação) para o repositório da API. Copie para .github/workflows/ci.yml lá.
+# Ajuste os comandos do job "test" ao projeto (aqui: NestJS + pnpm + Prisma). Se a API não usa Prisma, tire o "prisma generate".
+#
+# Testes e build de verificação. Roda em todo push e é o check que deve ser exigido para mergear um PR
+# (Settings > Branches/Rulesets > Require status checks > "test" e "docker-build").
+# Não publica nada: a publicação das imagens e o deploy ficam em deploy.yml.
+name: ci
+
+on:
+  push:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm prisma generate
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+
+  # Garante que as duas imagens (aplicação e migração) continuam construindo em arm64, a arquitetura da VPS.
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Imagem da API
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+      - name: Imagem de migração
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrate
+          platforms: linux/arm64
+          push: false
+          cache-from: type=gha,scope=api

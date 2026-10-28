@@ -2,7 +2,7 @@
 # sem cache e sem gateway. Chunks e índice ficam no SeaweedFS (S3 local), bucket observability-local;
 # o volume do pod guarda só o WAL. Retenção de 7 dias.
 # Pré-requisito: Secret "loki-s3" na namespace monitoring (AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY),
-# criado por templates/seaweedfs/create-secrets.sh (veja gitops/README.md). Fora do Git.
+# criado por templates/seaweedfs/create-secrets.sh (veja docs/servicos/armazenamento-s3.md). Fora do Git.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

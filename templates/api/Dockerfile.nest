@@ -5,12 +5,24 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build && npm prune --omit=dev
+RUN npm run build
+
+# Alvo "migrate" (só para quem usa Prisma): a imagem final é podada e não tem o CLI do Prisma nem a pasta prisma/,
+# então as migrações rodam num Job do ArgoCD (PreSync) com ESTA imagem. Sem Prisma, apague este estágio.
+# Antes do `npm run build`, rode `npx prisma generate` se o client for gerado fora do node_modules.
+#   docker build --target migrate -t api-migrate .
+FROM build AS migrate
+USER node
+CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
+
+# Poda das devDependencies só para a imagem final (não afeta o alvo migrate)
+FROM build AS prod-deps
+RUN npm prune --omit=dev
 
 FROM node:22-alpine
 ENV NODE_ENV=production PORT=8080
 WORKDIR /app
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./
 USER node

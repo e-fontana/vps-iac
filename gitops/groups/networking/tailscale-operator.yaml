@@ -1,5 +1,5 @@
 # Tailscale Kubernetes Operator: expõe Services/Ingress na tailnet com nome e HTTPS próprios.
-# Pré-requisitos (ACL, OAuth client e Secret "operator-oauth"): veja gitops/README.md.
+# Pré-requisitos (ACL, OAuth client e Secret "operator-oauth"): veja docs/infraestrutura/acesso-pela-vpn.md.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

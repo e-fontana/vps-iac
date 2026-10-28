@@ -1,7 +1,7 @@
 # Redis compartilhado (StatefulSet + exporter), em gitops/manifests/redis.
 #
 # Pré-requisito: o Secret "redis-credentials", criado por templates/redis/create-secret.sh (veja
-# gitops/README.md), ANTES do push: sem ele o pod fica em CreateContainerConfigError.
+# docs/servicos/redis.md), ANTES do push: sem ele o pod fica em CreateContainerConfigError.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
