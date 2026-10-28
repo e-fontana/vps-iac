@@ -34,6 +34,8 @@ resource "oci_core_instance" "vps" {
   }
 
   lifecycle {
-    ignore_changes = [source_details[0].source_id]
+    # user_data só vale no primeiro boot: trocar a auth key (ou o bootstrap) não deve recriar a VM.
+    # Para aplicar um bootstrap novo de propósito: terraform apply -replace=module.compute.oci_core_instance.vps
+    ignore_changes = [source_details[0].source_id, metadata["user_data"]]
   }
 }
