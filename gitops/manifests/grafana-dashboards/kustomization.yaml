@@ -1,0 +1,12 @@
+# Dashboards próprios do Grafana, entregues como ConfigMap e montados pelo chart (grafana.yaml,
+# dashboardsConfigMaps). Para alterar um dashboard, edite o JSON e faça push; o Grafana relê os arquivos
+# sozinho (alguns segundos). Sem hash no nome: o chart referencia o ConfigMap pelo nome fixo.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: grafana-dashboards-api
+    files:
+      - api-nestjs.json

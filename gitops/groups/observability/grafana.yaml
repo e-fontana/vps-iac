@@ -1,5 +1,6 @@
 # Grafana em https://grafana.eduardofontana.dev, com o Prometheus como datasource padrão
-# e dois dashboards do grafana.com: Node Exporter Full (1860) e kube-state-metrics v2 (13332).
+# e dashboards do grafana.com (Node Exporter Full, kube-state-metrics, PostgreSQL, Redis) mais os próprios
+# (gitops/manifests/grafana-dashboards).
 # Pré-requisito: Secret "grafana-admin" na namespace monitoring (veja gitops/README.md).
 # O download dos dashboards roda no start do pod e precisa de acesso a grafana.com.
 apiVersion: argoproj.io/v1alpha1
@@ -99,6 +100,18 @@ spec:
                 editable: true
                 options:
                   path: /var/lib/grafana/dashboards/default
+              # Dashboards próprios: o ConfigMap vem de gitops/manifests/grafana-dashboards (a chave
+              # de dashboardsConfigMaps é o nome do provider e o diretório onde o chart o monta)
+              - name: api
+                orgId: 1
+                folder: API
+                type: file
+                disableDeletion: false
+                editable: true
+                options:
+                  path: /var/lib/grafana/dashboards/api
+        dashboardsConfigMaps:
+          api: grafana-dashboards-api
         dashboards:
           default:
             node-exporter-full:

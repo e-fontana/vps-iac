@@ -1,0 +1,26 @@
+# Dashboards próprios do Grafana (hoje: "API (NestJS)"), em gitops/manifests/grafana-dashboards.
+# Onda 1, antes do Grafana (onda 2): o pod do Grafana monta este ConfigMap e não sobe sem ele.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana-dashboards
+  namespace: argocd
+  labels:
+    group: observability
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: observability
+  source:
+    repoURL: https://github.com/e-fontana/vpn-iac.git
+    targetRevision: main
+    path: gitops/manifests/grafana-dashboards
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
