@@ -1,6 +1,26 @@
 # Projetos do ArgoCD: agrupam as Applications na interface (filtro "Projects") e deixam
 # espaço para restringir repositórios, destinos e permissões por grupo no futuro.
 # Onda -1: precisam existir antes das Applications que os usam.
+#
+#   groups         as Applications de grupo (networking, observability): filtre por ele para ver só os macros
+#   networking     serviços de ingress, certificados e VPN
+#   observability  serviços de métricas e dashboards
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: groups
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: Applications de grupo (cada uma gerencia os serviços de uma área)
+  sourceRepos:
+    - "*"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+  clusterResourceWhitelist: []
+---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:

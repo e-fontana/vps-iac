@@ -10,7 +10,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:
-  project: default
+  project: groups
   source:
     repoURL: https://github.com/e-fontana/vpn-iac.git
     targetRevision: main

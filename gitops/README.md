@@ -3,7 +3,7 @@
 ```
 gitops/
 ├── apps/                     # o root lê só aqui: projetos + uma Application por grupo
-│   ├── projects.yaml         # AppProjects (networking, observability)
+│   ├── projects.yaml         # AppProjects (groups, networking, observability)
 │   ├── networking.yaml       # → groups/networking
 │   └── observability.yaml    # → groups/observability
 ├── groups/
@@ -15,11 +15,12 @@ gitops/
 A Application `root` (criada pelo bootstrap da VM) observa `gitops/apps`, definido por `gitops_path`
 no tfvars. Cada grupo é uma Application que observa a própria pasta em `groups/`, então na interface
 do ArgoCD os serviços aparecem agrupados: abra `networking` ou `observability` para ver os filhos,
-ou filtre a lista por **Project** ou pelo label `group`.
+ou filtre a lista por **Project**: `groups` mostra só os macros (`networking` e `observability`);
+`networking` e `observability` mostram os serviços de cada área.
 
 **Adicionar um serviço:** crie um YAML em `groups/<grupo>/` com `project: <grupo>` e o label
 `group: <grupo>`, e faça push. **Novo grupo:** um `AppProject` em `apps/projects.yaml`, um arquivo
-`apps/<grupo>.yaml` copiado de um existente e uma pasta `groups/<grupo>/`.
+`apps/<grupo>.yaml` (com `project: groups`) copiado de um existente e uma pasta `groups/<grupo>/`.
 
 Ordem de sync (ondas): projetos (-1), grupos `networking` (0) e `observability` (1); dentro de cada
 grupo, as ondas de cada Application.
