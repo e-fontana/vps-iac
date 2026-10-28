@@ -1,0 +1,58 @@
+#!/bin/bash
+# Setup inicial do nó: VPN, k3s mínimo, ArgoCD e Application raiz.
+# Roda uma vez no primeiro boot (via cloud-init) e se remove ao terminar com sucesso.
+set -euo pipefail
+exec > >(tee -a /var/log/bootstrap-node.log) 2>&1
+
+kubectl() { k3s kubectl "$@"; }
+
+# Firewall do host: a imagem OCI rejeita tudo exceto SSH.
+# Libera a interface da VPN e o tráfego interno do k3s (pods/services).
+allow() { iptables -C INPUT "$@" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 "$@" -j ACCEPT; }
+allow -i tailscale0
+allow -i cni0
+allow -s 10.42.0.0/16
+allow -s 10.43.0.0/16
+netfilter-persistent save
+
+# VPN
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up --authkey='${tailscale_auth_key}' --hostname='${tailscale_hostname}' --ssh
+TS_IP=$(tailscale ip -4)
+
+# k3s mínimo: sem traefik, servicelb, metrics-server e helm-controller
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
+  --disable traefik --disable servicelb --disable metrics-server \
+  --disable-helm-controller \
+  --write-kubeconfig-mode 600 \
+  --service-node-port-range 443-32767 \
+  --tls-san $TS_IP --tls-san '${tailscale_hostname}'" sh -
+
+until kubectl get nodes 2>/dev/null | grep -q ' Ready'; do sleep 5; done
+
+# ArgoCD (server-side apply: os CRDs excedem o limite de annotation)
+kubectl get namespace argocd >/dev/null 2>&1 || kubectl create namespace argocd
+kubectl apply -n argocd --server-side -f \
+  https://raw.githubusercontent.com/argoproj/argo-cd/${argocd_version}/manifests/install.yaml
+
+# Desliga o que não é usado (SSO e notificações) para poupar RAM
+kubectl -n argocd scale deploy/argocd-dex-server deploy/argocd-notifications-controller --replicas=0
+
+# UI acessível só pela VPN em https://<hostname>.<tailnet>.ts.net (NodePort 443, fechado na security list)
+kubectl -n argocd patch svc argocd-server \
+  -p '{"spec":{"type":"NodePort","ports":[{"name":"https","port":443,"nodePort":443}]}}'
+
+# Certificado TLS da UI via `tailscale cert` (renovação diária por timer systemd).
+# Não fatal: sem HTTPS habilitado no tailnet o ArgoCD segue com certificado autoassinado
+# e o timer tenta de novo depois.
+/usr/local/sbin/renew-argocd-cert.sh || echo "AVISO: certificado Tailscale não emitido (HTTPS habilitado no tailnet?)"
+systemctl enable --now argocd-cert-renew.timer
+
+%{ if gitops_repo_url != "" ~}
+# Application raiz (app-of-apps): o ArgoCD passa a gerenciar tudo que estiver no repo
+kubectl wait --for=condition=Established crd/applications.argoproj.io --timeout=180s
+kubectl apply -f /var/lib/bootstrap/root-app.yaml
+%{ endif ~}
+
+rm -f -- "$0" /var/lib/bootstrap/root-app.yaml
+echo "bootstrap concluído"

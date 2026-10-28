@@ -1,0 +1,46 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - jq
+
+write_files:
+  - path: /usr/local/sbin/bootstrap-node.sh
+    permissions: "0700"
+    content: |
+      ${indent(6, script)}
+  - path: /usr/local/sbin/renew-argocd-cert.sh
+    permissions: "0700"
+    content: |
+      ${indent(6, renew_script)}
+  - path: /etc/systemd/system/argocd-cert-renew.service
+    content: |
+      [Unit]
+      Description=Renova o certificado TLS do ArgoCD (Tailscale)
+      After=network-online.target k3s.service tailscaled.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/renew-argocd-cert.sh
+  - path: /etc/systemd/system/argocd-cert-renew.timer
+    content: |
+      [Unit]
+      Description=Renovação diária do certificado TLS do ArgoCD
+
+      [Timer]
+      OnCalendar=daily
+      RandomizedDelaySec=1h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  - path: /var/lib/bootstrap/root-app.yaml
+    permissions: "0600"
+    content: |
+      ${indent(6, root_app)}
+
+runcmd:
+  - systemctl daemon-reload
+  - /usr/local/sbin/bootstrap-node.sh

@@ -1,0 +1,28 @@
+# Tailscale Kubernetes Operator: expõe Services/Ingress na tailnet com nome e HTTPS próprios.
+# Pré-requisitos (ACL, OAuth client e Secret "operator-oauth"): veja gitops/README.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tailscale-operator
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://pkgs.tailscale.com/helmcharts
+    chart: tailscale-operator
+    targetRevision: 1.104.2
+    helm:
+      releaseName: tailscale-operator
+      # As credenciais NÃO vão aqui: o chart lê o Secret "operator-oauth"
+      # (chaves client_id e client_secret), criado fora do Git.
+      valuesObject: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tailscale
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true # os CRDs do operator são grandes demais para o apply client-side

@@ -1,0 +1,59 @@
+# cloud
+
+VPS no Always Free da Oracle (ARM) rodando k3s mínimo + ArgoCD, acessível só pela VPN (Tailscale).
+
+```
+cloud/
+├── terraform/
+│   ├── modules/
+│   │   ├── network/    # VCN, subnet, security list (sem portas públicas além do SSH temporário)
+│   │   └── compute/    # instância Ubuntu + bootstrap (Tailscale, k3s, ArgoCD, certificado TLS)
+│   └── envs/prod/      # onde se roda o terraform (tfvars, providers, chamada dos módulos)
+└── gitops/
+    └── apps/           # Applications do ArgoCD (sincronizadas automaticamente)
+```
+
+## Ordem de execução
+
+### 1. Pré-requisitos (uma vez)
+- Conta OCI com Pay As You Go ativo e a API key criada (valores em `terraform.tfvars`).
+- **Tailscale** instalado e logado na sua máquina.
+- No admin do Tailscale: **DNS → MagicDNS** ligado e **Enable HTTPS**.
+- **Auth key** do Tailscale: one-off, não reutilizável, expiração de 1 dia.
+- Este repositório publicado no GitHub (a VM precisa clonar `gitops/apps`). Se for privado, cadastre as credenciais no ArgoCD depois do boot.
+
+### 2. Configurar
+```bash
+cd terraform/envs/prod
+cp terraform.tfvars.example terraform.tfvars   # se ainda não existir; preencha
+# defina gitops_repo_url (ou deixe vazio para criar a Application raiz depois)
+export TF_VAR_tailscale_auth_key=tskey-auth-...
+```
+
+### 3. Subir a infra
+```bash
+terraform init
+terraform plan      # revise antes de aplicar
+terraform apply
+```
+O bootstrap leva alguns minutos. Log na VM: `/var/log/bootstrap-node.log`.
+
+### 4. Acessar (pela VPN)
+- SSH: `ssh ubuntu@argocd`
+- UI: `https://argocd.<tailnet>.ts.net`
+- Senha inicial do `admin`:
+  `ssh ubuntu@argocd "sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"`
+
+### 5. Fechar o SSH público
+Só depois de entrar pela VPN: `enable_public_ssh = false` no tfvars e `terraform apply`
+(altera só a security list, não recria a VM).
+
+### 6. Tailscale operator (expor serviços na tailnet)
+Siga `gitops/README.md`: ACL, OAuth client e o Secret `operator-oauth` no cluster.
+O ArgoCD instala o operator a partir de `gitops/apps/tailscale-operator.yaml`.
+
+## Atenção
+- `terraform.tfvars`, `*.tfstate` e `*.pem` estão no `.gitignore`. A auth key do Tailscale fica
+  no state e no metadata da instância: use chave one-off de curta duração.
+- Alterar o cloud-init/bootstrap (`user_data`) **recria a VM**.
+- Se o apply der `Out of host capacity`, tente outro `availability_domain_index`.

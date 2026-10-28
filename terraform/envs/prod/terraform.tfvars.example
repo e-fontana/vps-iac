@@ -1,0 +1,28 @@
+# --- OCI (Console → Perfil → My profile / Tenancy) ---
+tenancy_ocid     = "ocid1.tenancy.oc1..xxxx"
+user_ocid        = "ocid1.user.oc1..xxxx"
+fingerprint      = "aa:bb:cc:dd:..."
+private_key_path = "~/.oci/oci_api_key.pem"
+region           = "sa-saopaulo-1"                # tem que ser a home region
+compartment_ocid = "ocid1.tenancy.oc1..xxxx"      # ou de um compartment específico
+
+# --- Instância (defaults dentro do Always Free) ---
+instance_name       = "vps-free"
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+# instance_ocpus     = 2
+# instance_memory_gb = 12
+# boot_volume_gb     = 100
+
+# --- Rede ---
+ssh_allowed_cidr  = "0.0.0.0/0"   # troque pelo seu IP/32
+enable_public_ssh = true          # false depois de validar o acesso pelo Tailscale
+
+# --- VPN / ArgoCD ---
+tailscale_hostname = "argocd"     # URL: https://argocd.<tailnet>.ts.net
+argocd_version     = "stable"     # fixe uma tag, ex: "v2.14.11"
+# tailscale_auth_key: NÃO colocar aqui. Use: export TF_VAR_tailscale_auth_key=tskey-auth-...
+
+# --- GitOps (Application raiz) ---
+gitops_repo_url = ""              # https://github.com/<voce>/<repo>.git (vazio = sem Application raiz)
+gitops_revision = "main"
+gitops_path     = "gitops/apps"
