@@ -45,10 +45,16 @@ kubectl -n argocd scale deploy/argocd-dex-server deploy/argocd-notifications-con
 kubectl -n argocd patch svc argocd-server \
   -p '{"spec":{"type":"NodePort","ports":[{"name":"https","port":443,"nodePort":443}]}}'
 
+%{ if cloudflare_api_token != "" ~}
+# Token da Cloudflare para o certbot (DNS-01); legível só pelo root
+install -d -m 700 /etc/letsencrypt
+( umask 077; printf 'dns_cloudflare_api_token = %s\n' '${cloudflare_api_token}' > /etc/letsencrypt/cloudflare.ini )
+
+%{ endif ~}
 # Certificado TLS da UI via `tailscale cert` (renovação diária por timer systemd).
 # Não fatal: sem HTTPS habilitado no tailnet o ArgoCD segue com certificado autoassinado
 # e o timer tenta de novo depois.
-/usr/local/sbin/renew-argocd-cert.sh || echo "AVISO: certificado Tailscale não emitido (HTTPS habilitado no tailnet?)"
+/usr/local/sbin/renew-argocd-cert.sh || echo "AVISO: certificado não emitido (token da Cloudflare em /etc/letsencrypt/cloudflare.ini ou HTTPS do Tailscale?). Veja o README"
 systemctl enable --now argocd-cert-renew.timer
 
 %{ if gitops_repo_url != "" ~}

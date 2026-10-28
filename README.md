@@ -40,9 +40,26 @@ O bootstrap leva alguns minutos. Log na VM: `/var/log/bootstrap-node.log`.
 
 ### 4. Acessar (pela VPN)
 - SSH: `ssh ubuntu@argocd`
-- UI: `https://argocd.<tailnet>.ts.net`
+- UI: `https://argocd.eduardofontana.dev` (com `argocd_domain`; sem ele, `https://argocd.<tailnet>.ts.net`)
 - Senha inicial do `admin`:
   `ssh ubuntu@argocd "sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"`
+
+### 4b. Domínio na Cloudflare (`argocd_domain`)
+O certbot valida por DNS-01, sem abrir porta pública. A zona precisa estar **ativa** na Cloudflare.
+
+1. **Token da API:** Cloudflare → My Profile → API Tokens → Create Token → template
+   *Edit zone DNS* → Zone Resources: *Include → Specific zone → eduardofontana.dev*.
+2. **Grave o token na VPS** (por SSH, fora do Terraform, para não ir ao state/metadata):
+   ```bash
+   ssh ubuntu@argocd
+   sudo install -m 600 /dev/null /etc/letsencrypt/cloudflare.ini
+   sudo nano /etc/letsencrypt/cloudflare.ini     # dns_cloudflare_api_token = <TOKEN>
+   sudo /usr/local/sbin/renew-argocd-cert.sh     # emite o certificado (1ª vez)
+   ```
+   Na primeira subida o certificado falha (sem token) e o ArgoCD usa um autoassinado; o comando
+   acima resolve. Depois o timer `argocd-cert-renew` renova sozinho.
+3. **Registro DNS:** tipo `A`, nome `argocd`, conteúdo = IP da tailnet da VPS (`tailscale ip -4 argocd`),
+   proxy **desligado** (nuvem cinza / DNS only). O IP é 100.x, só roteável pela sua tailnet.
 
 ### 5. Fechar o SSH público
 Só depois de entrar pela VPN: `enable_public_ssh = false` no tfvars e `terraform apply`

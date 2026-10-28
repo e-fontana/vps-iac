@@ -6,6 +6,10 @@ packages:
   - curl
   - jq
   - iptables-persistent
+%{ if domain != "" ~}
+  - certbot
+  - python3-certbot-dns-cloudflare
+%{ endif ~}
 
 write_files:
   - path: /usr/local/sbin/bootstrap-node.sh
