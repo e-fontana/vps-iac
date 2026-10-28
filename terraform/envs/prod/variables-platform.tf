@@ -18,25 +18,6 @@ variable "argocd_version" {
   default     = "stable"
 }
 
-variable "argocd_domain" {
-  description = "Domínio da UI do ArgoCD (ex: argocd.eduardofontana.dev). Usa certbot + DNS-01 na Cloudflare. Vazio: usa o nome .ts.net via tailscale cert"
-  type        = string
-  default     = ""
-}
-
-variable "cloudflare_api_token" {
-  description = "Token da Cloudflare (Edit zone DNS, só da zona). Passe via TF_VAR_cloudflare_api_token; nunca no tfvars"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "acme_email" {
-  description = "E-mail para o registro no Let's Encrypt (opcional; vazio registra sem e-mail)"
-  type        = string
-  default     = ""
-}
-
 variable "gitops_repo_url" {
   description = "URL do repo Git com as Applications do ArgoCD (https). Vazio: sem Application raiz"
   type        = string

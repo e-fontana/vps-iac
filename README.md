@@ -8,7 +8,7 @@ cloud/
 ├── terraform/
 │   ├── modules/
 │   │   ├── network/    # VCN, subnet, security list (sem portas públicas além do SSH temporário)
-│   │   └── compute/    # instância Ubuntu + bootstrap (Tailscale, k3s, ArgoCD, certificado TLS)
+│   │   └── compute/    # instância Ubuntu + bootstrap (Tailscale, k3s, ArgoCD, ArgoCD)
 │   └── envs/prod/      # onde se roda o terraform (tfvars, providers, chamada dos módulos)
 └── gitops/
     └── apps/           # Applications do ArgoCD (sincronizadas automaticamente)
@@ -40,26 +40,16 @@ O bootstrap leva alguns minutos. Log na VM: `/var/log/bootstrap-node.log`.
 
 ### 4. Acessar (pela VPN)
 - SSH: `ssh ubuntu@argocd`
-- UI: `https://argocd.eduardofontana.dev` (com `argocd_domain`; sem ele, `https://argocd.<tailnet>.ts.net`)
+- UI: `https://argocd.eduardofontana.dev` (depois do ingress; até lá: `ssh -L 8080:localhost:8080 ...` + `kubectl -n argocd port-forward svc/argocd-server 8080:80`)
 - Senha inicial do `admin`:
   `ssh ubuntu@argocd "sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"`
 
-### 4b. Domínio na Cloudflare (`argocd_domain`)
-O certbot valida por DNS-01, sem abrir porta pública. A zona precisa estar **ativa** na Cloudflare.
-
-1. **Token da API:** Cloudflare → My Profile → API Tokens → Create Token → template
-   *Edit zone DNS* → Zone Resources: *Include → Specific zone → eduardofontana.dev*.
-2. **Grave o token na VPS** (por SSH, fora do Terraform, para não ir ao state/metadata):
-   ```bash
-   ssh ubuntu@argocd
-   sudo install -m 600 /dev/null /etc/letsencrypt/cloudflare.ini
-   sudo nano /etc/letsencrypt/cloudflare.ini     # dns_cloudflare_api_token = <TOKEN>
-   sudo /usr/local/sbin/renew-argocd-cert.sh     # emite o certificado (1ª vez)
-   ```
-   Na primeira subida o certificado falha (sem token) e o ArgoCD usa um autoassinado; o comando
-   acima resolve. Depois o timer `argocd-cert-renew` renova sozinho.
-3. **Registro DNS:** tipo `A`, nome `argocd`, conteúdo = IP da tailnet da VPS (`tailscale ip -4 argocd`),
-   proxy **desligado** (nuvem cinza / DNS only). O IP é 100.x, só roteável pela sua tailnet.
+### 4b. Domínio e certificados
+Os certificados (Let's Encrypt, DNS-01 na Cloudflare) são emitidos pelo **cert-manager** dentro do
+cluster e o **Traefik** atende `argocd.eduardofontana.dev` e `grafana.eduardofontana.dev` na 443,
+tudo instalado pelo GitOps. Os secrets (token da Cloudflare, senha do Grafana) e a ordem da
+migração estão em `gitops/README.md`. Registros DNS: `A` `argocd` e `A` `grafana` → IP da VPS na
+tailnet (`tailscale ip -4 <nome-do-dispositivo>`), com o proxy da Cloudflare desligado.
 
 ### 5. Fechar o SSH público
 Só depois de entrar pela VPN: `enable_public_ssh = false` no tfvars e `terraform apply`
@@ -68,6 +58,11 @@ Só depois de entrar pela VPN: `enable_public_ssh = false` no tfvars e `terrafor
 ### 6. Tailscale operator (expor serviços na tailnet)
 Siga `gitops/README.md`: ACL, OAuth client e o Secret `operator-oauth` no cluster.
 O ArgoCD instala o operator a partir de `gitops/apps/tailscale-operator.yaml`.
+
+### 7. Ingress, certificados e Grafana
+`gitops/apps/` também sobe cert-manager, Traefik, Prometheus e Grafana
+(`argocd.eduardofontana.dev` e `grafana.eduardofontana.dev`, sem porta). **A ordem importa**:
+siga `gitops/README.md` (secrets e liberação da porta 443) antes do `git push`.
 
 ## Atenção
 - `terraform.tfvars`, `*.tfstate` e `*.pem` estão no `.gitignore`. A auth key do Tailscale fica

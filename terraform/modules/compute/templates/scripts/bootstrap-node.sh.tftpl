@@ -41,21 +41,11 @@ kubectl apply -n argocd --server-side -f \
 # Desliga o que não é usado (SSO e notificações) para poupar RAM
 kubectl -n argocd scale deploy/argocd-dex-server deploy/argocd-notifications-controller --replicas=0
 
-# UI acessível só pela VPN em https://<hostname>.<tailnet>.ts.net (NodePort 443, fechado na security list)
-kubectl -n argocd patch svc argocd-server \
-  -p '{"spec":{"type":"NodePort","ports":[{"name":"https","port":443,"nodePort":443}]}}'
-
-%{ if cloudflare_api_token != "" ~}
-# Token da Cloudflare para o certbot (DNS-01); legível só pelo root
-install -d -m 700 /etc/letsencrypt
-( umask 077; printf 'dns_cloudflare_api_token = %s\n' '${cloudflare_api_token}' > /etc/letsencrypt/cloudflare.ini )
-
-%{ endif ~}
-# Certificado TLS da UI via `tailscale cert` (renovação diária por timer systemd).
-# Não fatal: sem HTTPS habilitado no tailnet o ArgoCD segue com certificado autoassinado
-# e o timer tenta de novo depois.
-/usr/local/sbin/renew-argocd-cert.sh || echo "AVISO: certificado não emitido (token da Cloudflare em /etc/letsencrypt/cloudflare.ini ou HTTPS do Tailscale?). Veja o README"
-systemctl enable --now argocd-cert-renew.timer
+# O argocd-server passa a responder em HTTP: TLS e exposição (argocd.<domínio>) ficam com o
+# Traefik + cert-manager, instalados pelo próprio GitOps (gitops/apps). Até o ingress subir:
+#   kubectl -n argocd port-forward svc/argocd-server 8080:80
+kubectl -n argocd patch cm argocd-cmd-params-cm --type merge -p '{"data":{"server.insecure":"true"}}'
+kubectl -n argocd rollout restart deploy/argocd-server
 
 %{ if gitops_repo_url != "" ~}
 # Application raiz (app-of-apps): o ArgoCD passa a gerenciar tudo que estiver no repo

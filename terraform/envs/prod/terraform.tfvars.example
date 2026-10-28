@@ -22,11 +22,6 @@ tailscale_hostname = "argocd"     # URL: https://argocd.<tailnet>.ts.net
 argocd_version     = "stable"     # fixe uma tag, ex: "v2.14.11"
 # tailscale_auth_key: NÃO colocar aqui. Use: export TF_VAR_tailscale_auth_key=tskey-auth-...
 
-# --- Domínio próprio na Cloudflare (opcional; vazio = nome .ts.net via tailscale cert) ---
-argocd_domain = "argocd.eduardofontana.dev"
-# acme_email  = ""   # opcional
-# cloudflare_api_token: NÃO colocar aqui. Use: export TF_VAR_cloudflare_api_token=...
-
 # --- GitOps (Application raiz) ---
 gitops_repo_url = ""              # https://github.com/<voce>/<repo>.git (vazio = sem Application raiz)
 gitops_revision = "main"

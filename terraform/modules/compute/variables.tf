@@ -47,19 +47,6 @@ variable "tailscale_hostname" {
   type = string
 }
 
-variable "argocd_domain" {
-  type = string
-}
-
-variable "cloudflare_api_token" {
-  type      = string
-  sensitive = true
-}
-
-variable "acme_email" {
-  type = string
-}
-
 variable "argocd_version" {
   type = string
 }

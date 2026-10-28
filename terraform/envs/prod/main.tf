@@ -26,9 +26,6 @@ module "compute" {
   tailscale_auth_key        = var.tailscale_auth_key
   tailscale_hostname        = var.tailscale_hostname
   argocd_version            = var.argocd_version
-  argocd_domain             = var.argocd_domain
-  acme_email                = var.acme_email
-  cloudflare_api_token      = var.cloudflare_api_token
   gitops_repo_url           = var.gitops_repo_url
   gitops_revision           = var.gitops_revision
   gitops_path               = var.gitops_path
