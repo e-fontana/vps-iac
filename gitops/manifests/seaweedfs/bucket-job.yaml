@@ -1,0 +1,41 @@
+# Cria o bucket observability-local depois que o SeaweedFS fica saudável (hook PostSync do ArgoCD).
+# Idempotente: 200 (criou) e 409 BucketAlreadyOwnedByYou (já existia) contam como sucesso.
+# Usa a identidade admin do Secret "seaweedfs-admin" (AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seaweedfs-create-bucket
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: create-bucket
+          image: curlimages/curl:8.23.0
+          envFrom:
+            - secretRef:
+                name: seaweedfs-admin
+          command:
+            - sh
+            - -c
+            - |
+              for i in $(seq 1 60); do
+                code=$(curl -s -o /dev/null -w '%{http_code}' \
+                  --aws-sigv4 "aws:amz:us-east-1:s3" --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \
+                  -X PUT "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333/observability-local")
+                case "$code" in
+                  200|409) echo "bucket observability-local ok (HTTP $code)"; exit 0 ;;
+                esac
+                echo "tentativa $i: HTTP $code"; sleep 5
+              done
+              echo "não foi possível criar o bucket" >&2; exit 1
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi

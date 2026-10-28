@@ -3,13 +3,15 @@
 ```
 gitops/
 ├── apps/                     # o root lê só aqui: projetos + uma Application por grupo
-│   ├── projects.yaml         # AppProjects (groups, networking, observability, workloads)
+│   ├── projects.yaml         # AppProjects (groups, networking, infra, observability, workloads)
 │   ├── networking.yaml       # → groups/networking
 │   ├── observability.yaml    # → groups/observability
+│   ├── infra.yaml            # → groups/infra
 │   └── workloads.yaml        # → groups/workloads
 ├── groups/
 │   ├── networking/           # cert-manager, cert-manager-config, traefik, argocd-ingress, tailscale-operator
 │   ├── observability/        # prometheus, loki, tempo, alloy, grafana
+│   ├── infra/                # postgres (compartilhado) e seaweedfs (S3 local)
 │   └── workloads/            # api (aplicações próprias)
 └── manifests/                # YAML simples usados pelas Applications (ClusterIssuer, Ingress)
 ```
@@ -24,7 +26,7 @@ ou filtre a lista por **Project**: `groups` mostra só os macros (`networking` e
 `group: <grupo>`, e faça push. **Novo grupo:** um `AppProject` em `apps/projects.yaml`, um arquivo
 `apps/<grupo>.yaml` (com `project: groups`) copiado de um existente e uma pasta `groups/<grupo>/`.
 
-Ordem de sync (ondas): projetos (-1), grupos `networking` (0) e `observability` (1) e `workloads` (2); dentro de cada
+Ordem de sync (ondas): projetos (-1), grupos `networking` (0), `infra` e `observability` (1) e `workloads` (2); dentro de cada
 grupo, as ondas de cada Application.
 
 ## Tailscale operator: pré-requisitos
@@ -148,30 +150,109 @@ sudo k3s kubectl get pods -A
 - O `ingressEndpoint.ip` do Traefik é o IP da VPS na tailnet (`traefik.yaml`). Se ele mudar,
   atualize ali; é só cosmético (status dos Ingress).
 
-## API própria (Go ou NestJS + Postgres)
+## Postgres compartilhado (infra)
+
+`groups/infra/postgres.yaml` aplica `manifests/postgres`: namespace `postgres`, um Postgres 17 (StatefulSet,
+10 Gi em `local-path`) com o `postgres_exporter` ao lado. É **uma instância para vários bancos**: cada aplicação
+tem o seu banco e o seu usuário. Fica em `postgres.postgres.svc.cluster.local:5432`, só dentro do cluster.
+A Application está **sem sync automático** (o Secret precisa existir antes): veja o comentário no arquivo.
+
+### 1. Secret do superusuário (na VPS; nada vai ao Git)
+```bash
+ssh -t ubuntu@100.95.76.83
+sudo k3s kubectl create namespace postgres
+PW=$(openssl rand -hex 24)
+sudo k3s kubectl -n postgres create secret generic postgres-credentials \
+  --from-literal=POSTGRES_USER=postgres --from-literal=POSTGRES_PASSWORD="$PW" --from-literal=POSTGRES_DB=postgres
+unset PW
+```
+Depois clique em **Sync** na Application `postgres`. Confira: `sudo k3s kubectl -n postgres get pods,pvc`.
+
+### 2. Criar o banco de uma aplicação
+O script cria o usuário e o banco (mesmo nome), revoga o acesso dos outros usuários a esse banco e grava o
+`DATABASE_URL` num Secret na namespace da aplicação. A senha é aleatória e não é impressa:
+```bash
+# uso: new-database.sh <banco> <namespace> [nome-do-secret]
+ssh ubuntu@100.95.76.83 'bash -s -- api api api-env' < templates/postgres/new-database.sh
+ssh ubuntu@100.95.76.83 'bash -s -- billing billing'  < templates/postgres/new-database.sh   # outro banco
+```
+Se o banco já existir, o script aborta sem alterar nada. Para listar: `\l` no `psql`.
+
+### Operação
+- Acesso de administração: `sudo k3s kubectl -n postgres exec -it postgres-0 -c postgres -- psql -U postgres`.
+  Dentro do pod, o socket local não pede senha; de outros pods, a senha é exigida.
+- **Sem backup automático**: os dados ficam no disco da VPS. Para algo além de testes, faça `pg_dump`
+  periódico para fora da máquina.
+- Métricas e logs: o job `postgres` do Prometheus e o Alloy já olham a namespace `postgres`.
+
+## Armazenamento de objetos (SeaweedFS)
+
+`groups/infra/seaweedfs.yaml` aplica `manifests/seaweedfs`: namespace `seaweedfs`, um SeaweedFS 4.51 em um processo
+só (master, volume, filer e gateway S3), 1 réplica, 20 Gi em `local-path`. O S3 fica em
+`http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333` (path-style, sem TLS), só dentro do cluster. Um Job (hook
+PostSync) cria o bucket `observability-local`. É o armazenamento do Loki e do Tempo.
+
+Cada serviço tem uma **identidade própria**, com permissão só no bucket dele (`Read:`, `Write:`, `List:`,
+`Tagging:` por bucket): o Loki e o Tempo não enxergam outros buckets e não criam buckets.
+
+### Ordem para ativar (importante)
+**Rode o script ANTES do `git push`.** O Loki e o Tempo passam a depender do SeaweedFS e dos Secrets dele; sem os
+Secrets, os pods ficam em `CreateContainerConfigError` e os logs e traces ficam sem armazenamento.
+```bash
+ssh ubuntu@100.95.76.83 'bash -s' < templates/seaweedfs/create-secrets.sh
+```
+O script gera as chaves (aleatórias, passam por stdin e não são impressas) e cria `seaweedfs-s3-config` e
+`seaweedfs-admin` (namespace `seaweedfs`), `loki-s3` e `tempo-s3` (namespace `monitoring`). Se já existirem, aborta
+sem alterar nada.
+
+Depois do push (e do refresh do `root`), confira:
+```bash
+sudo k3s kubectl -n seaweedfs get pods,pvc                  # seaweedfs-0 Running
+sudo k3s kubectl -n seaweedfs logs job/seaweedfs-create-bucket  # "bucket observability-local ok" (o Job some ao terminar)
+sudo k3s kubectl -n monitoring get pods                     # loki-0 e tempo-0 Running, sem reiniciar em loop
+```
+Sem o bucket, o Loki e o Tempo **encerram na inicialização** (testei os dois contra um SeaweedFS sem o bucket) e
+o Kubernetes os reinicia até ele existir. Como o bucket só é criado depois que o SeaweedFS fica saudável, no primeiro
+deploy é normal ver `CrashLoopBackOff` neles por alguns minutos; some sozinho.
+
+### Acessar o S3 do seu PC
+Só pela VPN, com um túnel (não há Ingress de propósito):
+```bash
+ssh -L 8333:localhost:8333 ubuntu@100.95.76.83 'sudo k3s kubectl -n seaweedfs port-forward svc/seaweedfs-s3 8333:8333'
+```
+As chaves do admin estão no Secret `seaweedfs-admin`. O `aws` CLI ou o `curl --aws-sigv4` servem de cliente.
+
+### Dados que já existiam no Loki e no Tempo
+Trocar o armazenamento **não migra** nada: o que estiver nos volumes antigos deixa de ser lido. Como as fontes de
+logs e traces (a API e o Postgres) ainda não rodam, o esperado é não haver nada a perder.
+
+### Limites e riscos
+- **Um nó, sem replicação e sem backup.** Os dados ficam no disco da VPS.
+- **Disco:** volumes de 512 MB, até 40, com PVC de 20 Gi; os volumes viram somente leitura com menos de 5% livre.
+- **Segurança:** o SeaweedFS avisa que o gRPC do filer (porta 18888, dentro do pod) aceita gerenciar usuários sem
+  autenticação para quem o alcançar. Só o serviço do S3 (8333) é publicado, mas qualquer pod do cluster alcança o IP do
+  pod. Uma `NetworkPolicy` limitando a entrada à porta 8333 resolveria; não está incluída porque não testei se o
+  controlador de rede do k3s a aplica sem atrapalhar a comunicação interna do pod.
+- O log do SeaweedFS mostra um erro de STS ("no signing key found"): ele se refere a tokens temporários, que não usamos,
+  e não afetou as identidades estáticas nos testes.
+- **Novos buckets e identidades:** edite o JSON do Secret `seaweedfs-s3-config` e reinicie o `seaweedfs-0`.
+
+## API própria (Go ou NestJS)
 
 `groups/workloads/api.yaml` descreve `manifests/api` (hoje **sem sync automático**: a Application fica `OutOfSync`
-até você mandar; veja o comentário no próprio arquivo). Ele cria: namespace `api`, Postgres (StatefulSet, 5 Gi em
-`local-path`), a API (Deployment + Service) e um Ingress em `https://api.eduardofontana.dev`, só pela VPN.
+até você mandar; veja o comentário no próprio arquivo). Ele cria: namespace `api`, a API (Deployment + Service) e
+um Ingress em `https://api.eduardofontana.dev`, só pela VPN. O banco da API fica no **Postgres compartilhado**
+(seção acima), que precisa estar no ar antes.
 Até existir imagem própria, a API roda a imagem de teste `traefik/whoami`: serve para validar DNS,
 TLS e ingress antes de escrever código.
 
-### 1. Secrets (na VPS; nada vai ao Git)
+### 1. Banco e Secret da API (na VPS; nada vai ao Git)
+Com o Postgres compartilhado no ar, um comando cria o banco `api` e o Secret `api-env` (namespace `api`):
 ```bash
-ssh -t ubuntu@100.95.76.83
-sudo k3s kubectl create namespace api
-
-PW=$(openssl rand -hex 24)    # só letras e números: entra na URL do banco sem precisar de escape
-sudo k3s kubectl -n api create secret generic postgres-credentials \
-  --from-literal=POSTGRES_USER=api --from-literal=POSTGRES_PASSWORD="$PW" --from-literal=POSTGRES_DB=api
-sudo k3s kubectl -n api create secret generic api-env \
-  --from-literal=DATABASE_URL="postgres://api:$PW@postgres.api.svc.cluster.local:5432/api?sslmode=disable"
-unset PW
+ssh ubuntu@100.95.76.83 'bash -s -- api api api-env' < templates/postgres/new-database.sh
 ```
-A senha não aparece na tela. Para ler depois:
-`sudo k3s kubectl -n api get secret postgres-credentials -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d`.
-`sslmode=disable` porque o tráfego fica dentro do cluster. **Crie os Secrets antes do push**, ou os pods
-ficam em `CreateContainerConfigError` até eles existirem.
+`sslmode=disable` na URL porque o tráfego fica dentro do cluster. **Crie o Secret antes do Sync**, ou o pod
+da API fica em `CreateContainerConfigError`.
 
 ### 2. DNS
 Registro `A` `api` → IP da VPS na tailnet, proxy desligado.
@@ -179,7 +260,7 @@ Registro `A` `api` → IP da VPS na tailnet, proxy desligado.
 ### 3. Conferir a infra com a imagem de teste
 ```bash
 sudo k3s kubectl -n argocd get applications
-sudo k3s kubectl -n api get pods,pvc,certificate
+sudo k3s kubectl -n api get pods,certificate
 curl -s https://api.eduardofontana.dev/    # pela VPN: a imagem de teste devolve os headers da requisição
 ```
 
@@ -193,21 +274,19 @@ No repositório da API (separado deste):
 4. A cada push na `main`, o CI publica a imagem `linux/arm64`, troca a tag no `kustomization.yaml` e o
    ArgoCD aplica. Migrações: rode no start da API ou em um Job.
 
-### Banco de dados
-- Acesso: `sudo k3s kubectl -n api exec -it postgres-0 -- psql -U api -d api`.
-- **Sem backup automático**: os dados ficam no disco da VPS. Para algo mais que testes, faça um
-  `pg_dump` periódico para fora da máquina.
 - Métricas da API: descomente as anotações `prometheus.io/*` no Service em `manifests/api/api.yaml`.
 
 ## Logs, traces e métricas da API (OpenTelemetry)
 
 Stack: **Alloy** (coletor) → **Loki** (logs), **Tempo** (traces) e **Prometheus** (métricas), tudo visto no
-Grafana (`https://grafana.eduardofontana.dev`). Retenção de 7 dias em Loki e Tempo (volumes de 10 Gi cada,
-`local-path`, sem backup). Nada disso foi testado com uma API de verdade.
+Grafana (`https://grafana.eduardofontana.dev`). **Loki e Tempo guardam os dados no SeaweedFS** (S3 local, bucket
+`observability-local`: o Loki em `fake/` e `index/`, o Tempo em `tempo/`); o volume de 10 Gi de cada um guarda só o
+WAL. Retenção de 7 dias em ambos. O Prometheus continua no disco (PVC de 10 Gi, 15 dias): ele não escreve em S3.
+Nada disso foi testado com uma API de verdade.
 
 ```
 API ──OTLP──► alloy:4318 ──► Tempo (traces) · Prometheus (métricas, via remote_write) · Loki (logs OTLP)
-pods da namespace "api" (API + Postgres) ──► Alloy (lê pela API do Kubernetes) ──► Loki
+pods das namespaces "api" e "postgres" ──► Alloy (lê pela API do Kubernetes) ──► Loki
 postgres_exporter (sidecar do Postgres) ──► Prometheus (job "postgres")
 ```
 
@@ -215,8 +294,8 @@ postgres_exporter (sidecar do Postgres) ──► Prometheus (job "postgres")
 - **Exportar OTLP.** O Deployment já define `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`
   (`http://alloy.monitoring.svc.cluster.local:4318`) e `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`.
   Basta o SDK do OpenTelemetry da linguagem (Go ou Node) ler essas variáveis.
-- **Logs em JSON no stdout, com `trace_id`.** O Alloy coleta o stdout dos pods da namespace `api`, então os
-  logs da API e do Postgres caem nas mesmas streams (`{namespace="api"}`). No Loki, o campo `trace_id` do
+- **Logs em JSON no stdout, com `trace_id`.** O Alloy coleta o stdout dos pods das namespaces `api` e `postgres`, então os
+  logs da API e do Postgres ficam no mesmo Loki (`{namespace=~"api|postgres"}`). No Loki, o campo `trace_id` do
   JSON vira um link para o trace no Tempo. (A API também pode mandar logs por OTLP; escolha um dos dois
   para não duplicar.)
 - **Spans de banco.** Use a instrumentação do driver (`otelpgx` em Go, a instrumentação `pg` no Nest): as
@@ -227,17 +306,17 @@ O Postgres não fala OpenTelemetry. Sozinhos, o log dele e o trace da API só se
 Para ligar de verdade, a API deve usar **sqlcommenter**: colocar o `traceparent` como comentário no SQL. O
 Postgres já loga statements acima de 250 ms (`log_min_duration_statement`) e esperas por lock, e a linha
 carrega o comentário. No Loki, o campo derivado `traceparent` abre o trace no Tempo. No Tempo, o botão de
-logs do span busca `{namespace="api"} |= "<traceId>"`.
+logs do span busca `{namespace=~"api|postgres"} |= "<traceId>"`.
 
 ### Métricas do banco
 O sidecar `postgres_exporter` (porta 9187) é coletado pelo job `postgres` do Prometheus. O dashboard
 *PostgreSQL Exporter Quickstart* (14114) já vem provisionado no Grafana. Ele só mostra dados depois que o
-Postgres da API estiver no ar.
+Postgres compartilhado estiver no ar.
 
 ### Conferir depois do deploy
 ```bash
 sudo k3s kubectl -n monitoring get pods                     # loki, tempo, alloy Running
 sudo k3s kubectl -n monitoring logs deploy/alloy --tail=30  # sem erros de envio
 ```
-No Grafana: **Explore → Loki** com `{namespace="api"}`; **Explore → Tempo**; e **Connections → Data sources**
+No Grafana: **Explore → Loki** com `{namespace=~"api|postgres"}`; **Explore → Tempo**; e **Connections → Data sources**
 para ver Loki e Tempo.

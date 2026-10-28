@@ -1,0 +1,25 @@
+# Postgres compartilhado (StatefulSet + exporter), em gitops/manifests/postgres.
+#
+# SEM sync automático de propósito: o Secret "postgres-credentials" precisa existir antes (senão o
+# pod fica em CreateContainerConfigError). Crie-o (gitops/README.md, seção "Postgres compartilhado")
+# e então clique em Sync na interface, ou restaure o bloco abaixo (e faça push) para o sync automático:
+#       syncPolicy:
+#         automated:
+#           prune: true
+#           selfHeal: true
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres
+  namespace: argocd
+  labels:
+    group: infra
+spec:
+  project: infra
+  source:
+    repoURL: https://github.com/e-fontana/vpn-iac.git
+    targetRevision: main
+    path: gitops/manifests/postgres
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: postgres

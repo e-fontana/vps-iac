@@ -33,7 +33,7 @@ spec:
             kubernetes_sd_configs:
               - role: endpoints
                 namespaces:
-                  names: [api]
+                  names: [postgres]
             relabel_configs:
               - source_labels: [__meta_kubernetes_service_name]
                 regex: postgres-metrics

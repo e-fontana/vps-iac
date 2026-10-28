@@ -1,0 +1,153 @@
+# SeaweedFS: S3 local da infra. Um processo só (master + volume + filer + gateway S3), 1 réplica, dados
+# em volume local-path do k3s (disco da própria VPS, sem backup, sem replicação).
+# S3 em http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333 (path-style), só dentro do cluster.
+#
+# Identidades e chaves de acesso ficam no Secret "seaweedfs-s3-config" (chave s3.json), criado por
+# templates/seaweedfs/create-secrets.sh: nada disso vai ao Git. Cada serviço tem uma identidade que só
+# enxerga o próprio bucket (ex.: loki e tempo -> observability-local).
+#
+# Limites de volume: o padrão do SeaweedFS (30 GB por volume, 8 volumes) não cabe num disco pequeno.
+# Aqui: volumes de 512 MB, até 40 (20 GB lógicos, o tamanho do PVC) e marca como somente leitura com
+# menos de 5% livre.
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+  labels:
+    app: seaweedfs
+spec:
+  # Headless: dá ao pod o nome estável seaweedfs-0.seaweedfs.<ns>.svc, usado como -ip. Publica o
+  # endereço antes de o pod ficar Ready, senão ele não resolve o próprio nome ao subir.
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: seaweedfs
+  ports:
+    - name: master
+      port: 9333
+      targetPort: 9333
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs-s3
+  labels:
+    app: seaweedfs
+spec:
+  selector:
+    app: seaweedfs
+  ports:
+    - name: s3
+      port: 8333
+      targetPort: 8333
+---
+# Métricas do SeaweedFS para o Prometheus (porta 9327), coletadas pelas anotações
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs-metrics
+  labels:
+    app: seaweedfs
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9327"
+spec:
+  selector:
+    app: seaweedfs
+  ports:
+    - name: metrics
+      port: 9327
+      targetPort: 9327
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seaweedfs
+  labels:
+    app: seaweedfs
+spec:
+  serviceName: seaweedfs
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seaweedfs
+  template:
+    metadata:
+      labels:
+        app: seaweedfs
+    spec:
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:4.51
+          args:
+            - server
+            - -dir=/data
+            - -ip=$(POD_NAME).seaweedfs.$(POD_NAMESPACE).svc.cluster.local
+            - -ip.bind=0.0.0.0
+            - -master.volumeSizeLimitMB=512
+            - -volume.max=40
+            - -volume.minFreeSpace=5
+            - -filer
+            - -s3
+            - -s3.config=/etc/seaweedfs/s3.json
+            - -metricsPort=9327
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: master
+              containerPort: 9333
+            - name: volume
+              containerPort: 8080
+            - name: filer
+              containerPort: 8888
+            - name: s3
+              containerPort: 8333
+            - name: metrics
+              containerPort: 9327
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: s3-config
+              mountPath: /etc/seaweedfs
+              readOnly: true
+          # O gateway S3 só abre depois de master, volume e filer; por isso o startupProbe é folgado
+          startupProbe:
+            tcpSocket:
+              port: s3
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            tcpSocket:
+              port: s3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /cluster/status
+              port: master
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: s3-config
+          secret:
+            secretName: seaweedfs-s3-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

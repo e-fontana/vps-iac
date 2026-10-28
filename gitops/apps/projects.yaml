@@ -75,3 +75,22 @@ spec:
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: infra
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: Serviços compartilhados (Postgres, armazenamento de objetos)
+  sourceRepos:
+    - "*"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  # Só permite criar Namespaces entre os recursos globais (os manifests criam as namespaces)
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace

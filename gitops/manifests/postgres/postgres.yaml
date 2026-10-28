@@ -1,8 +1,13 @@
-# Postgres da API: 1 réplica, volume local-path do k3s (disco da própria VPS, sem backup automático).
+# Postgres COMPARTILHADO da infra: uma instância, vários bancos (um banco e um usuário por aplicação).
+# 1 réplica, volume local-path do k3s (disco da própria VPS, sem backup automático).
+# Só é alcançável dentro do cluster: postgres.postgres.svc.cluster.local:5432.
+#
+# Superusuário em Secret "postgres-credentials" (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB),
+# criado à mão: veja gitops/README.md. Para criar o banco de uma aplicação (usuário + banco + Secret
+# com DATABASE_URL na namespace dela): templates/postgres/new-database.sh.
+#
 # Logs: statements lentos (>250 ms) e esperas por lock vão para o stdout; o Alloy os envia ao Loki.
 # Métricas: sidecar postgres_exporter (porta 9187), coletado pelo job "postgres" do Prometheus.
-# Credenciais vêm do Secret "postgres-credentials" (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB),
-# criado à mão: veja gitops/README.md. Só é alcançável dentro do cluster.
 apiVersion: v1
 kind: Service
 metadata:
@@ -89,7 +94,7 @@ spec:
               cpu: 100m
               memory: 256Mi
             limits:
-              memory: 1Gi
+              memory: 2Gi
         - name: exporter
           image: prometheuscommunity/postgres-exporter:v0.20.1
           ports:
@@ -126,4 +131,4 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 5Gi
+            storage: 10Gi

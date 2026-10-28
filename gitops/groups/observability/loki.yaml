@@ -1,5 +1,8 @@
 # Loki: armazena logs (do Postgres e da API, coletados pelo Alloy). Modo monolítico: 1 pod,
-# sem cache e sem gateway, dados em volume local. Retenção de 7 dias.
+# sem cache e sem gateway. Chunks e índice ficam no SeaweedFS (S3 local), bucket observability-local;
+# o volume do pod guarda só o WAL. Retenção de 7 dias.
+# Pré-requisito: Secret "loki-s3" na namespace monitoring (AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY),
+# criado por templates/seaweedfs/create-secrets.sh (veja gitops/README.md). Fora do Git.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -24,23 +27,39 @@ spec:
           commonConfig:
             replication_factor: 1
           storage:
-            type: filesystem
+            type: s3
+            # Um bucket só: o Loki separa por prefixo (fake/, index/, rules/...). O bucket é criado
+            # pelo Job do SeaweedFS, que precisa ter rodado antes.
+            bucketNames:
+              chunks: observability-local
+              ruler: observability-local
+              admin: observability-local
+            s3:
+              endpoint: http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333
+              region: us-east-1
+              s3ForcePathStyle: true
+              insecure: true
+              # sem accessKeyId/secretAccessKey: o cliente usa AWS_ACCESS_KEY_ID e
+              # AWS_SECRET_ACCESS_KEY do ambiente (singleBinary.extraEnvFrom abaixo)
           schemaConfig:
             configs:
               - from: "2024-04-01"
                 store: tsdb
-                object_store: filesystem
+                object_store: s3
                 schema: v13
                 index:
                   prefix: loki_index_
                   period: 24h
           compactor:
             retention_enabled: true
-            delete_request_store: filesystem
+            delete_request_store: s3
           limits_config:
             retention_period: 168h
         singleBinary:
           replicas: 1
+          extraEnvFrom:
+            - secretRef:
+                name: loki-s3
           persistence:
             enabled: true
             size: 10Gi

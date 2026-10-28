@@ -1,4 +1,8 @@
-# Tempo: armazena traces (a API envia por OTLP via Alloy). 1 pod, volume local, retenção de 7 dias.
+# Tempo: armazena traces (a API envia por OTLP via Alloy). 1 pod, retenção de 7 dias.
+# Os blocos de traces ficam no SeaweedFS (S3 local), bucket observability-local, prefixo tempo/;
+# o volume do pod guarda só o WAL.
+# Pré-requisito: Secret "tempo-s3" na namespace monitoring (AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY),
+# criado por templates/seaweedfs/create-secrets.sh (veja gitops/README.md). Fora do Git.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -20,6 +24,22 @@ spec:
         tempo:
           retention: 168h
           reportingEnabled: false
+          storage:
+            trace:
+              backend: s3
+              s3:
+                bucket: observability-local
+                prefix: tempo
+                endpoint: seaweedfs-s3.seaweedfs.svc.cluster.local:8333
+                insecure: true
+                forcepathstyle: true
+                # sem access_key/secret_key: o cliente usa AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY
+                # do ambiente (extraEnvFrom abaixo)
+              wal:
+                path: /var/tempo/wal
+          extraEnvFrom:
+            - secretRef:
+                name: tempo-s3
           resources:
             requests:
               cpu: 50m

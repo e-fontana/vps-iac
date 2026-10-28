@@ -1,6 +1,7 @@
 # A API. A imagem é definida no kustomization.yaml (nome lógico "api-image").
 # A aplicação deve ouvir na porta 8080 (variável PORT) e ler DATABASE_URL do ambiente.
-# Variáveis vêm do Secret "api-env" (DATABASE_URL), criado à mão: veja gitops/README.md.
+# DATABASE_URL vem do Secret "api-env", criado por templates/postgres/new-database.sh (o banco da API
+# fica no Postgres compartilhado da infra): veja gitops/README.md.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

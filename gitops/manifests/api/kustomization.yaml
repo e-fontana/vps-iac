@@ -3,7 +3,6 @@ kind: Kustomization
 namespace: api
 resources:
   - namespace.yaml
-  - postgres.yaml
   - api.yaml
   - ingress.yaml
 images:

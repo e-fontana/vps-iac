@@ -78,7 +78,7 @@ spec:
                 jsonData:
                   nodeGraph:
                     enabled: true
-                  # Do trace para os logs da API e do Postgres (mesma namespace) que citam o trace_id
+                  # Do trace para os logs da API e do Postgres que citam o trace_id
                   tracesToLogsV2:
                     datasourceUid: loki
                     spanStartTimeShift: "-5m"
@@ -86,7 +86,7 @@ spec:
                     filterByTraceID: false
                     filterBySpanID: false
                     customQuery: true
-                    query: '{namespace="api"} |= "$${__trace.traceId}"'
+                    query: '{namespace=~"api|postgres"} |= "$${__trace.traceId}"'
         dashboardProviders:
           dashboardproviders.yaml:
             apiVersion: 1

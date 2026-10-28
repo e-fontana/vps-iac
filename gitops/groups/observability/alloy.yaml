@@ -1,6 +1,6 @@
 # Grafana Alloy: coletor único.
 #   - recebe OTLP da API (4317 gRPC / 4318 HTTP): traces -> Tempo, métricas -> Prometheus, logs -> Loki
-#   - lê os logs dos pods da namespace "api" (Postgres e API) e envia ao Loki
+#   - lê os logs dos pods das namespaces "api", "postgres" e "seaweedfs" e envia ao Loki
 # A API deve exportar para http://alloy.monitoring.svc.cluster.local:4318 (veja gitops/README.md).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -97,12 +97,12 @@ spec:
                 }
               }
 
-              // ---- Logs dos pods (Postgres e API) ----
+              // ---- Logs dos pods (API, Postgres e SeaweedFS) ----
               // Para coletar de outras namespaces, acrescente-as em names (ou remova o bloco namespaces).
               discovery.kubernetes "pods" {
                 role = "pod"
                 namespaces {
-                  names = ["api"]
+                  names = ["api", "postgres", "seaweedfs"]
                 }
               }
 
