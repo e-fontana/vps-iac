@@ -1,0 +1,149 @@
+# Grafana Alloy: coletor único.
+#   - recebe OTLP da API (4317 gRPC / 4318 HTTP): traces -> Tempo, métricas -> Prometheus, logs -> Loki
+#   - lê os logs dos pods da namespace "api" (Postgres e API) e envia ao Loki
+# A API deve exportar para http://alloy.monitoring.svc.cluster.local:4318 (veja gitops/README.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  labels:
+    group: observability
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: observability
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: alloy
+    targetRevision: 1.14.3
+    helm:
+      releaseName: alloy
+      valuesObject:
+        # Deployment (1 réplica): o loki.source.kubernetes lê pela API do Kubernetes,
+        # então não precisa de DaemonSet nem de acesso ao disco do nó
+        controller:
+          type: deployment
+          replicas: 1
+        alloy:
+          extraPorts:
+            - name: otlp-grpc
+              port: 4317
+              targetPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              port: 4318
+              targetPort: 4318
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          configMap:
+            content: |
+              // ---- OTLP da API ----
+              otelcol.receiver.otlp "default" {
+                grpc {
+                  endpoint = "0.0.0.0:4317"
+                }
+                http {
+                  endpoint = "0.0.0.0:4318"
+                }
+                output {
+                  metrics = [otelcol.processor.batch.default.input]
+                  logs    = [otelcol.processor.batch.default.input]
+                  traces  = [otelcol.processor.batch.default.input]
+                }
+              }
+
+              otelcol.processor.batch "default" {
+                output {
+                  metrics = [otelcol.exporter.prometheus.default.input]
+                  logs    = [otelcol.exporter.otlphttp.loki.input]
+                  traces  = [otelcol.exporter.otlp.tempo.input]
+                }
+              }
+
+              // traces -> Tempo
+              otelcol.exporter.otlp "tempo" {
+                client {
+                  endpoint = "tempo.monitoring.svc.cluster.local:4317"
+                  tls {
+                    insecure = true
+                  }
+                }
+              }
+
+              // métricas -> Prometheus (remote_write)
+              otelcol.exporter.prometheus "default" {
+                forward_to = [prometheus.remote_write.prometheus.receiver]
+              }
+
+              prometheus.remote_write "prometheus" {
+                endpoint {
+                  url = "http://prometheus-server.monitoring.svc.cluster.local/api/v1/write"
+                }
+              }
+
+              // logs OTLP -> Loki (endpoint OTLP nativo do Loki)
+              otelcol.exporter.otlphttp "loki" {
+                client {
+                  endpoint = "http://loki.monitoring.svc.cluster.local:3100/otlp"
+                  tls {
+                    insecure = true
+                  }
+                }
+              }
+
+              // ---- Logs dos pods (Postgres e API) ----
+              // Para coletar de outras namespaces, acrescente-as em names (ou remova o bloco namespaces).
+              discovery.kubernetes "pods" {
+                role = "pod"
+                namespaces {
+                  names = ["api"]
+                }
+              }
+
+              discovery.relabel "pods" {
+                targets = discovery.kubernetes.pods.targets
+
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label  = "namespace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_name"]
+                  target_label  = "pod"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_container_name"]
+                  target_label  = "container"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app"]
+                  target_label  = "app"
+                }
+              }
+
+              loki.source.kubernetes "pods" {
+                targets    = discovery.relabel.pods.output
+                forward_to = [loki.write.loki.receiver]
+              }
+
+              loki.write "loki" {
+                endpoint {
+                  url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+                }
+              }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -27,7 +27,27 @@ spec:
           enabled: true
         prometheus-node-exporter:
           enabled: true
+        # Coleta o postgres_exporter (sidecar do Postgres da API) por um job próprio chamado "postgres"
+        extraScrapeConfigs: |
+          - job_name: postgres
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names: [api]
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                regex: postgres-metrics
+                action: keep
+              - source_labels: [__meta_kubernetes_namespace]
+                target_label: namespace
+              - source_labels: [__meta_kubernetes_pod_name]
+                target_label: pod
         server:
+          # extraFlags substitui o padrão (web.enable-lifecycle): mantém ele e liga o receptor de
+          # remote_write, por onde o Alloy entrega as métricas OTLP da API
+          extraFlags:
+            - web.enable-lifecycle
+            - web.enable-remote-write-receiver
           retention: 15d
           persistentVolume:
             enabled: true

@@ -9,7 +9,7 @@ gitops/
 │   └── workloads.yaml        # → groups/workloads
 ├── groups/
 │   ├── networking/           # cert-manager, cert-manager-config, traefik, argocd-ingress, tailscale-operator
-│   ├── observability/        # prometheus, grafana
+│   ├── observability/        # prometheus, loki, tempo, alloy, grafana
 │   └── workloads/            # api (aplicações próprias)
 └── manifests/                # YAML simples usados pelas Applications (ClusterIssuer, Ingress)
 ```
@@ -24,7 +24,7 @@ ou filtre a lista por **Project**: `groups` mostra só os macros (`networking` e
 `group: <grupo>`, e faça push. **Novo grupo:** um `AppProject` em `apps/projects.yaml`, um arquivo
 `apps/<grupo>.yaml` (com `project: groups`) copiado de um existente e uma pasta `groups/<grupo>/`.
 
-Ordem de sync (ondas): projetos (-1), grupos `networking` (0) e `observability` (1); dentro de cada
+Ordem de sync (ondas): projetos (-1), grupos `networking` (0) e `observability` (1) e `workloads` (2); dentro de cada
 grupo, as ondas de cada Application.
 
 ## Tailscale operator: pré-requisitos
@@ -198,3 +198,46 @@ No repositório da API (separado deste):
 - **Sem backup automático**: os dados ficam no disco da VPS. Para algo mais que testes, faça um
   `pg_dump` periódico para fora da máquina.
 - Métricas da API: descomente as anotações `prometheus.io/*` no Service em `manifests/api/api.yaml`.
+
+## Logs, traces e métricas da API (OpenTelemetry)
+
+Stack: **Alloy** (coletor) → **Loki** (logs), **Tempo** (traces) e **Prometheus** (métricas), tudo visto no
+Grafana (`https://grafana.eduardofontana.dev`). Retenção de 7 dias em Loki e Tempo (volumes de 10 Gi cada,
+`local-path`, sem backup). Nada disso foi testado com uma API de verdade.
+
+```
+API ──OTLP──► alloy:4318 ──► Tempo (traces) · Prometheus (métricas, via remote_write) · Loki (logs OTLP)
+pods da namespace "api" (API + Postgres) ──► Alloy (lê pela API do Kubernetes) ──► Loki
+postgres_exporter (sidecar do Postgres) ──► Prometheus (job "postgres")
+```
+
+### O que a API precisa fazer
+- **Exportar OTLP.** O Deployment já define `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`
+  (`http://alloy.monitoring.svc.cluster.local:4318`) e `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`.
+  Basta o SDK do OpenTelemetry da linguagem (Go ou Node) ler essas variáveis.
+- **Logs em JSON no stdout, com `trace_id`.** O Alloy coleta o stdout dos pods da namespace `api`, então os
+  logs da API e do Postgres caem nas mesmas streams (`{namespace="api"}`). No Loki, o campo `trace_id` do
+  JSON vira um link para o trace no Tempo. (A API também pode mandar logs por OTLP; escolha um dos dois
+  para não duplicar.)
+- **Spans de banco.** Use a instrumentação do driver (`otelpgx` em Go, a instrumentação `pg` no Nest): as
+  queries aparecem dentro do trace, no Tempo.
+
+### Ligar o log do Postgres ao trace
+O Postgres não fala OpenTelemetry. Sozinhos, o log dele e o trace da API só se relacionam por horário e pod.
+Para ligar de verdade, a API deve usar **sqlcommenter**: colocar o `traceparent` como comentário no SQL. O
+Postgres já loga statements acima de 250 ms (`log_min_duration_statement`) e esperas por lock, e a linha
+carrega o comentário. No Loki, o campo derivado `traceparent` abre o trace no Tempo. No Tempo, o botão de
+logs do span busca `{namespace="api"} |= "<traceId>"`.
+
+### Métricas do banco
+O sidecar `postgres_exporter` (porta 9187) é coletado pelo job `postgres` do Prometheus. O dashboard
+*PostgreSQL Exporter Quickstart* (14114) já vem provisionado no Grafana. Ele só mostra dados depois que o
+Postgres da API estiver no ar.
+
+### Conferir depois do deploy
+```bash
+sudo k3s kubectl -n monitoring get pods                     # loki, tempo, alloy Running
+sudo k3s kubectl -n monitoring logs deploy/alloy --tail=30  # sem erros de envio
+```
+No Grafana: **Explore → Loki** com `{namespace="api"}`; **Explore → Tempo**; e **Connections → Data sources**
+para ver Loki e Tempo.

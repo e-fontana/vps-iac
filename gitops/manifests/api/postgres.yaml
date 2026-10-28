@@ -1,4 +1,6 @@
 # Postgres da API: 1 réplica, volume local-path do k3s (disco da própria VPS, sem backup automático).
+# Logs: statements lentos (>250 ms) e esperas por lock vão para o stdout; o Alloy os envia ao Loki.
+# Métricas: sidecar postgres_exporter (porta 9187), coletado pelo job "postgres" do Prometheus.
 # Credenciais vêm do Secret "postgres-credentials" (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB),
 # criado à mão: veja gitops/README.md. Só é alcançável dentro do cluster.
 apiVersion: v1
@@ -14,6 +16,22 @@ spec:
     - name: postgres
       port: 5432
       targetPort: 5432
+---
+# Métricas do banco para o Prometheus (job "postgres", em extraScrapeConfigs do prometheus.yaml)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-metrics
+  labels:
+    app: postgres
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: metrics
+      port: 9187
+      targetPort: 9187
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -35,6 +53,14 @@ spec:
       containers:
         - name: postgres
           image: postgres:17-alpine
+          args:
+            - -c
+            - log_min_duration_statement=250
+            - -c
+            - log_lock_waits=on
+            # %a = application_name; útil para ver de qual serviço veio cada linha
+            - -c
+            - "log_line_prefix=%m [%p] %u@%d app=%a "
           ports:
             - name: postgres
               containerPort: 5432
@@ -64,6 +90,35 @@ spec:
               memory: 256Mi
             limits:
               memory: 1Gi
+        - name: exporter
+          image: prometheuscommunity/postgres-exporter:v0.20.1
+          ports:
+            - name: metrics
+              containerPort: 9187
+          env:
+            - name: DATA_SOURCE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_DB
+            - name: DATA_SOURCE_URI
+              value: localhost:5432/$(POSTGRES_DB)?sslmode=disable
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
   volumeClaimTemplates:
     - metadata:
         name: data
